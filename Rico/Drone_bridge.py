@@ -10,7 +10,6 @@ SHORTCUT_URLS = {
 
 r = sr.Recognizer()
 mic = sr.Microphone()
-#Bridge from ollama code to dji flylink app on ipad
 print("Say a command: (take off / land)")
 
 while True:
@@ -30,3 +29,4 @@ while True:
             print("Command not recognized.")
     except Exception as e:
         print("Error:", e)
+
