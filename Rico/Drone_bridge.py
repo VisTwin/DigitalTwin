@@ -4,8 +4,8 @@ import speech_recognition as sr
 # Webhook URL from Pushcut or Shortcuts Remote
 SHORTCUT_URLS = {
     #replace links with ones from the shortcuts app 
-    "takeoff": "https://api.pushcut.io/<your_device_id>/takeoff",
-    "land": "https://api.pushcut.io/<your_device_id>/land"
+    "takeoff": "https://api.pushcut.io/3CsuPL31cbY8gkSfKlG73/notifications/Dji%20Take%20Off",
+    "land": "https://api.pushcut.io/3CsuPL31cbY8gkSfKlG73/notifications/Dji%20Land"
 }
 
 r = sr.Recognizer()
@@ -29,4 +29,5 @@ while True:
             print("Command not recognized.")
     except Exception as e:
         print("Error:", e)
+
 
