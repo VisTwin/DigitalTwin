@@ -25,9 +25,13 @@ while True:
         elif "land" in cmd:
             print("Sending land command to iPad...")
             requests.get(SHORTCUT_URLS["land"])
+        elif "exit" in cmd:
+            print("Closing..")
+            break
         else:
             print("Command not recognized.")
     except Exception as e:
         print("Error:", e)
+
 
 
