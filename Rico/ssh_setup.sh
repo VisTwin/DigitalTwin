@@ -1,11 +1,5 @@
 #!/bin/bash
 
-# Update package list
-sudo apt-get update
-
-# Install OpenSSH server
-sudo apt-get install -y openssh-server
-
 # Enable SSH service
 sudo systemctl enable ssh
 sudo systemctl start ssh
