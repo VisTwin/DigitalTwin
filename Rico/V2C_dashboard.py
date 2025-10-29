@@ -26,7 +26,7 @@ def telemetry():
     return jsonify({"status": "ok"})
 
 def run_telemetry_server():
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='10.133.68.115', port=5000)
 
 # ==============================
 # VOICE COMMAND SECTION
