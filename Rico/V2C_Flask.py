@@ -2,7 +2,7 @@ import threading
 from threading import Lock
 import requests
 import speech_recognition as sr
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 import os, signal
 import csv
 from datetime import datetime
@@ -47,7 +47,65 @@ def log_telemetry(data):
     with open("telemetry_log.csv", "a", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([datetime.now(), data['altitude'], data['battery'], data['lat'], data['lon']])
-        
+def dashboard():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Drone Telemetry Dashboard</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                background-color: #0e1117;
+                color: #f0f0f0;
+                text-align: center;
+                padding-top: 40px;
+            }
+            .card {
+                display: inline-block;
+                background: #1c1f26;
+                border-radius: 15px;
+                padding: 20px 40px;
+                margin: 10px;
+                box-shadow: 0 0 10px #000;
+            }
+            h1 { color: #00d1b2; }
+            p { font-size: 20px; }
+        </style>
+    </head>
+    <body>
+        <h1>Drone Telemetry Dashboard</h1>
+        <div class="card"><p>Altitude: <b id="altitude">0</b> m</p></div>
+        <div class="card"><p>Battery: <b id="battery">0</b> %</p></div>
+        <div class="card"><p>Latitude: <b id="lat">0</b></p></div>
+        <div class="card"><p>Longitude: <b id="lon">0</b></p></div>
+        <script>
+            async function updateTelemetry() {
+                try {
+                    const res = await fetch('/telemetry_data');
+                    const data = await res.json();
+                    document.getElementById('altitude').textContent = data.altitude;
+                    document.getElementById('battery').textContent = data.battery;
+                    document.getElementById('lat').textContent = data.lat;
+                    document.getElementById('lon').textContent = data.lon;
+                } catch (err) {
+                    console.error('Error fetching telemetry:', err);
+                }
+            }
+            setInterval(updateTelemetry, 1000); // update every 1 sec
+            updateTelemetry(); // initial load
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(html)
+
+@app.route('/telemetry_data')
+def telemetry_data_endpoint():
+    with telemetry_lock:
+        data = telemetry_data.copy()
+    return jsonify(data)
+
 def run_telemetry_server():
     #can change it back to '10.133.68.115' if required for your setup.
     app.run(host='0.0.0.0', port=5000)
