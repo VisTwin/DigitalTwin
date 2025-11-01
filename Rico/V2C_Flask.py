@@ -216,17 +216,16 @@ def voice_control_loop():
         try:
             cmd = r.recognize_google(audio).lower()
             print(f"You said: {cmd}")
-            if "drone" in cmd:
-                if "take off" in cmd:
-                    send_command("takeoff", SHORTCUT_URLS["takeoff"])
-                elif "land" in cmd:
-                    send_command("land", SHORTCUT_URLS["land"])
-                elif "status" in cmd:
-                    get_status()
-                elif "exit" in cmd:
-                    print("Exiting voice control...")
-                    os.kill(os.getpid(), signal.SIGINT)
-                    break
+            if "drone" and "take off" in cmd:
+                send_command("takeoff", SHORTCUT_URLS["takeoff"])
+            elif "drone" and "land" in cmd:
+                send_command("land", SHORTCUT_URLS["land"])
+            elif "status" in cmd:
+                get_status()
+            elif "exit" in cmd:
+                print("Exiting voice control...")
+                os.kill(os.getpid(), signal.SIGINT)
+                break
         except sr.UnknownValueError:
             pass
         except Exception as e:
