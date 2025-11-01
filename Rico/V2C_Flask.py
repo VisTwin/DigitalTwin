@@ -34,7 +34,7 @@ def telemetry():
     # Use the lock to safely update the shared data structure
     with telemetry_lock:
         telemetry_data.update(data)
-        
+        log_telemetry(telemetry_data)
         print("\nTelemetry Update:")
         print(f" Altitude: {telemetry_data.get('altitude', 0)} m")
         print(f" Battery: {telemetry_data.get('battery', 0)} %")
