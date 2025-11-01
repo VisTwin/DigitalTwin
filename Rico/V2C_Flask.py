@@ -238,6 +238,7 @@ def voice_control_loop():
 # ==============================
 
 if __name__ == '__main__':
+    app.run(debug=True)
     server_thread = threading.Thread(target=run_telemetry_server, daemon=True)
     server_thread.start()
     print("Telemetry server started on port 5000 in background.")
