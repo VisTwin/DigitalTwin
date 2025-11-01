@@ -89,17 +89,23 @@ def get_status():
 def voice_control_loop():
     r = sr.Recognizer()
     mic = sr.Microphone()
-    r.adjust_for_ambient_noise(source, duration=1)  # Adjust ambient noise for better accuracy
-    print("\nVoice Control Active: say 'take off', 'land', 'status', or 'exit'")
+    print("\nCalibrating microphone for ambient noise...")
+
+    # Calibrate once before the loop
+    with mic as source:
+        r.adjust_for_ambient_noise(source, duration=1)
+
+    print("\nVoice Control Active: say 'drone take off', 'drone land', 'drone status', or 'drone exit'")
 
     while True:
         with mic as source:
             print("\nListening...")
             audio = r.listen(source)
-            
+
         try:
             cmd = r.recognize_google(audio).lower()
             print(f"You said: {cmd}")
+
             if "drone" in cmd:
                 if "take off" in cmd:
                     send_command("takeoff", SHORTCUT_URLS["takeoff"])
@@ -115,12 +121,12 @@ def voice_control_loop():
                     print("\nCommand not recognized. Try 'take off', 'land', or 'status'.")
                     
         except sr.UnknownValueError:
-            # Do nothing if speech is unintelligible
-            pass
+            pass  # Ignore unrecognized speech
         except sr.RequestError as e:
             print(f"\nCould not request results from Google Speech Recognition service; {e}")
         except Exception as e:
             print(f"\nAn unexpected error occurred: {e}")
+
 
 # ==============================
 # MAIN ENTRY POINT
