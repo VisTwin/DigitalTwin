@@ -1,0 +1,78 @@
+import sounddevice as sd
+import numpy as np
+import whisper
+import tempfile
+import scipy.io.wavfile as wav
+import os
+import requests
+import pyttsx3
+
+# Load Whisper model (small is fast; base is more accurate)
+whisper_model = whisper.load_model("base")
+engine = pyttsx3.init()
+
+def record_audio(duration=5, samplerate=16000):
+    print(" Recording...")
+    audio = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype='int16')
+    sd.wait()
+    return samplerate, audio
+
+def save_to_wav(samplerate, audio, filename):
+    wav.write(filename, samplerate, audio)
+
+def transcribe_whisper(filename):
+    print(" Transcribing...")
+    result = whisper_model.transcribe(filename)
+    print(" You said:", result["text"])
+    return result["text"]
+
+def ask_ollama(prompt, model="gemma3"):
+    url = "http://localhost:11434/api/generate"
+    data = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False
+    }
+    try:
+        response = requests.post(url, json=data)
+        response.raise_for_status()
+        reply = response.json()["response"]
+        print(" Ollama:", reply)
+        return reply
+    except Exception as e:
+        print(f" Error talking to Ollama: {e}")
+        return "Sorry, Ollama didn't respond."
+
+def speak(text):
+    engine.say(text)
+    engine.runAndWait()
+
+def main():
+    print(" Voice assistant started. Say something or say 'quit' to exit.")
+    while True:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmpfile:
+            temp_path = tmpfile.name
+
+        samplerate, audio = record_audio(duration=5)
+        save_to_wav(samplerate, audio, temp_path)
+
+        try:
+            text = transcribe_whisper(temp_path)
+        finally:
+            os.remove(temp_path)
+
+        if not text.strip():
+            continue
+        if text.lower().strip() in ["quit", "exit", "stop"]:
+            print(" Exiting.")
+            break
+
+        response = ask_ollama(text)
+        speak(response)
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n Exiting via Ctrl+C.")
+
