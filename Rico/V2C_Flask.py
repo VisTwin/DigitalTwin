@@ -94,32 +94,17 @@ def run_flask():
     app.run(host="0.0.0.0", port=5000, debug=False)
 
 # ==============================
-# UDP TELEMETRY RECEIVER
-# ==============================
-def udp_listener():
-    UDP_IP = "0.0.0.0"
-    UDP_PORT = 14550
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((UDP_IP, UDP_PORT))
-    print(f"[UDP] Listening for telemetry on port {UDP_PORT}...")
-
-    while True:
-        try:
-            msg, _ = sock.recvfrom(1024)
-            data = json.loads(msg.decode("utf-8"))
-            with telemetry_lock:
-                for key in telemetry_data:
-                    if key in data:
-                        telemetry_data[key] = data[key]
-                altitude_history.append({
-                    "time": datetime.now().strftime("%H:%M:%S"),
-                    "altitude": telemetry_data["altitude"]
-                })
-                if len(altitude_history) > 60:
-                    altitude_history.pop(0)
-            log_telemetry(telemetry_data)
-        except Exception as e:
-            print("[UDP ERROR]", e)
+def send_shortcut(shortcut_name, payload):
+    """Trigger an iOS Shortcut remotely via Pushcut API."""
+    try:
+        url = f"https://api.pushcut.io/3CsuPL31cbY8gkSfKlG73/shortcuts/{shortcut_name}"
+        r = requests.post(url, json=payload, timeout=5)
+        if r.status_code == 200:
+            print(f"[Shortcut] Sent '{shortcut_name}' successfully")
+        else:
+            print(f"[Shortcut] Error {r.status_code}: {r.text}")
+    except Exception as e:
+        print("[Shortcut ERROR]", e)
 
 # ==============================
 # VOICE COMMAND SECTION
@@ -178,6 +163,5 @@ def voice_control_loop():
 # ==============================
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
-    threading.Thread(target=udp_listener, daemon=True).start()
     print("Telemetry dashboard running at: http://127.0.0.1:5000")
     voice_control_loop()
