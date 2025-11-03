@@ -122,6 +122,10 @@ PAGE = r"""
     </html>
     """
     '''
+@app.route('/')
+def index():
+    """Main telemetry dashboard page."""
+    return render_template_string(PAGE)
 
 @app.route('/telemetry', methods=['POST'])
 def telemetry():
