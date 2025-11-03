@@ -175,8 +175,7 @@ def log_telemetry(data):
 
 
 def run_telemetry_server():
-    app.run(host='0.0.0.0', port=5000)
-
+    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
 # ==============================
 # VOICE COMMAND SECTION
@@ -216,9 +215,9 @@ def voice_control_loop():
         try:
             cmd = r.recognize_google(audio).lower()
             print(f"You said: {cmd}")
-            if "drone" and "take off" in cmd:
+            if "drone" in cmd and "take off" in cmd:
                 send_command("takeoff", SHORTCUT_URLS["takeoff"])
-            elif "drone" and "land" in cmd:
+            elif "drone" in cmd and "land" in cmd:
                 send_command("land", SHORTCUT_URLS["land"])
             elif "status" in cmd:
                 get_status()
@@ -231,14 +230,11 @@ def voice_control_loop():
         except Exception as e:
             print(f"Voice recognition error: {e}")
 
-
 # ==============================
 # MAIN ENTRY POINT
 # ==============================
-
 if __name__ == '__main__':
-    app.run(port=5000)
     server_thread = threading.Thread(target=run_telemetry_server, daemon=True)
     server_thread.start()
-    print("Telemetry server started on port 5000 in background.")
+    print("Telemetry dashboard running at: http://127.0.0.1:5000/dashboard")
     voice_control_loop()
