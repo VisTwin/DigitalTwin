@@ -179,7 +179,7 @@ def log_telemetry(data):
 
 
 def run_telemetry_server():
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    app.run(debug=True)
 
 # ==============================
 # VOICE COMMAND SECTION
@@ -240,5 +240,5 @@ def voice_control_loop():
 if __name__ == '__main__':
     server_thread = threading.Thread(target=run_telemetry_server, daemon=True)
     server_thread.start()
-    print("Telemetry dashboard running at: http://127.0.0.1:5000/dashboard")
+    print("Telemetry dashboard running")
     voice_control_loop()
