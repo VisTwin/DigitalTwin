@@ -97,7 +97,7 @@ def run_flask():
 def send_shortcut(shortcut_name, payload):
     """Trigger an iOS Shortcut remotely via Pushcut API."""
     try:
-        url = f"https://api.pushcut.io/3CsuPL31cbY8gkSfKlG73/shortcuts/{shortcut_name}"
+        url = f"https://https://api.pushcut.io/3CsuPL31cbY8gkSfKlG73/notifications/Update%20Telemetry"
         r = requests.post(url, json=payload, timeout=5)
         if r.status_code == 200:
             print(f"[Shortcut] Sent '{shortcut_name}' successfully")
