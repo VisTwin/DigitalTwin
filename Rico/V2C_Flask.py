@@ -9,7 +9,6 @@ from datetime import datetime
 # ==============================
 
 telemetry_data = {"altitude": 0, "battery": 0, "lat": 0, "lon": 0}
-telemetry_lock = Lock()
 altitude_history = []  # Stores recent altitude readings
 
 # ==============================
