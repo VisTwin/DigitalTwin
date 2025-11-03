@@ -20,52 +20,8 @@ altitude_history = []  # Stores recent altitude readings
 
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return dashboard()
-
-@app.route('/telemetry', methods=['POST'])
-def telemetry():
-    """Receive telemetry data (POST JSON)."""
-    global telemetry_data, altitude_history
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "No telemetry data received"}), 400
-
-    with telemetry_lock:
-        for key in telemetry_data:
-            if key in data:
-                telemetry_data[key] = data[key]
-        altitude_history.append({
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "altitude": telemetry_data["altitude"]
-        })
-        # Keep last 60 points
-        if len(altitude_history) > 60:
-            altitude_history.pop(0)
-        log_telemetry(telemetry_data)
-
-    return jsonify({"status": "ok"})
-
-
-@app.route('/telemetry_data')
-def telemetry_data_endpoint():
-    """Return the latest telemetry snapshot."""
-    with telemetry_lock:
-        data = telemetry_data.copy()
-    return jsonify(data)
-
-
-@app.route('/altitude_data')
-def altitude_data():
-    """Return altitude history for chart updates."""
-    with telemetry_lock:
-        return jsonify(altitude_history)
-
-
-@app.route('/dashboard')
-def dashboard():
-    """Display live telemetry and altitude chart."""
+PAGE = r"""
+"""Display live telemetry and altitude chart."""
     html = """
     <!DOCTYPE html>
     <html>
@@ -165,8 +121,46 @@ def dashboard():
     </body>
     </html>
     """
-    return render_template_string(html)
+    '''
 
+@app.route('/telemetry', methods=['POST'])
+def telemetry():
+    """Receive telemetry data (POST JSON)."""
+    global telemetry_data, altitude_history
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No telemetry data received"}), 400
+
+    with telemetry_lock:
+        for key in telemetry_data:
+            if key in data:
+                telemetry_data[key] = data[key]
+        altitude_history.append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "altitude": telemetry_data["altitude"]
+        })
+        # Keep last 60 points
+        if len(altitude_history) > 60:
+            altitude_history.pop(0)
+        log_telemetry(telemetry_data)
+
+    return jsonify({"status": "ok"})
+
+
+@app.route('/telemetry_data')
+def telemetry_data_endpoint():
+    """Return the latest telemetry snapshot."""
+    with telemetry_lock:
+        data = telemetry_data.copy()
+    return jsonify(data)
+
+
+@app.route('/altitude_data')
+def altitude_data():
+    """Return altitude history for chart updates."""
+    with telemetry_lock:
+        return jsonify(altitude_history)
+    
 
 def log_telemetry(data):
     """Append telemetry row to CSV."""
