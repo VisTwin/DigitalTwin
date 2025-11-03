@@ -20,6 +20,10 @@ altitude_history = []  # Stores recent altitude readings
 
 app = Flask(__name__)
 
+@app.route('/')
+def home():
+    return dashboard()
+
 @app.route('/telemetry', methods=['POST'])
 def telemetry():
     """Receive telemetry data (POST JSON)."""
