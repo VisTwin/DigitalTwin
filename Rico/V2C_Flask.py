@@ -232,7 +232,7 @@ def voice_control_loop():
 # MAIN ENTRY POINT
 # ==============================
 if __name__ == '__main__':
-        print("Telemetry dashboard running at: http://127.0.0.1:5000/dashboard")
+    print("Telemetry dashboard running at: http://127.0.0.1:5000/dashboard")
     run_mode = input("Enter mode (1 = Dashboard, 2 = Voice Control): ").strip()
     if run_mode == "1":
         app.run(host='0.0.0.0', port=5000, debug=False)
