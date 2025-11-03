@@ -215,9 +215,9 @@ def voice_control_loop():
         try:
             cmd = r.recognize_google(audio).lower()
             print(f"You said: {cmd}")
-            if "drone" in cmd and "take off" in cmd:
+            if "drone take off" in cmd:
                 send_command("takeoff", SHORTCUT_URLS["takeoff"])
-            elif "drone" in cmd and "land" in cmd:
+            elif "drone land" in cmd:
                 send_command("land", SHORTCUT_URLS["land"])
             elif "status" in cmd:
                 get_status()
