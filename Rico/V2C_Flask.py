@@ -179,7 +179,7 @@ def log_telemetry(data):
 
 
 def run_telemetry_server():
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
 
 # ==============================
 # VOICE COMMAND SECTION
