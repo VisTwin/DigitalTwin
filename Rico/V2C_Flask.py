@@ -148,7 +148,7 @@ def voice_control_loop():
     mic = sr.Microphone()
     print("\nCalibrating microphone...")
     with mic as source:
-        r.adjust_for_ambient_noise(source, timeout=3)
+        r.adjust_for_ambient_noise(source, duration = .5)
     print("Voice Control Ready (say 'drone take off', 'land', 'status', or 'exit').")
 
     while True:
