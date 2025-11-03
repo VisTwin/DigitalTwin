@@ -1,4 +1,5 @@
 import requests
+import threading
 import speech_recognition as sr
 from flask import Flask, request, jsonify, render_template_string
 import os, signal, csv
@@ -199,7 +200,7 @@ def voice_control_loop():
     mic = sr.Microphone()
     print("\nCalibrating microphone...")
     with mic as source:
-        r.adjust_for_ambient_noise(source, duration=1)
+        r.adjust_for_ambient_noise(source, timeout=3, phrase_time_limit=5)
     print("\nVoice Control Ready. Say: 'drone take off', 'land', 'status', or 'exit'.")
 
     while True:
@@ -228,6 +229,8 @@ def voice_control_loop():
 # MAIN ENTRY POINT
 # ==============================
 if __name__ == '__main__':
+     # Run the Flask telemetry server in a background thread
+    server_thread = threading.Thread(target=run_telemetry_server, daemon=True)
+    server_thread.start()
     print("Telemetry dashboard running at: http://127.0.0.1:5000/dashboard")
-    run_telemetry_server()
     voice_control_loop()
