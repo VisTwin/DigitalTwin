@@ -1,5 +1,4 @@
-import requests
-import threading
+import requests, threading, socket
 import speech_recognition as sr
 from flask import Flask, request, jsonify, render_template_string
 import os, signal, csv
@@ -130,7 +129,19 @@ def telemetry():
     data = request.get_json()
     if not data:
         return jsonify({"error": "No telemetry data received"}), 400
+    UDP_IP = "0.0.0.0"
+    UDP_PORT = 14550
+    SERVER_URL = "http://127.0.0.1:5000/telemetry"
 
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((UDP_IP, UDP_PORT))
+
+    print("Listening for telemetry on UDP port", UDP_PORT)
+while True:
+    msg, _ = sock.recvfrom(1024)
+    data = json.loads(msg.decode('utf-8'))
+    # Expect JSON with keys altitude, battery, lat, lon
+    requests.post(SERVER_URL, json=data)
     for key in telemetry_data:
         if key in data:
             telemetry_data[key] = data[key]
