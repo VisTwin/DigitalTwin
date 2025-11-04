@@ -81,24 +81,15 @@ def altitude_data():
         return jsonify(altitude_history)
 
 @app.route('/update_telemetry', methods=['POST'])
-def update_telemetry():
-    """Receive telemetry JSON from iPad Shortcut (Pushcut Shortcut)."""
-    try:
-        data = request.get_json()
-        with telemetry_lock:
-            for key in telemetry_data:
-                if key in data:
-                    telemetry_data[key] = float(data[key])
-            altitude_history.append({
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "altitude": telemetry_data["altitude"]
-            })
-            if len(altitude_history) > 60:
-                altitude_history.pop(0)
-        log_telemetry(telemetry_data)
-        return jsonify({"status": "ok"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
+def telemetry():
+    data = request.get_json(https://api.pushcut.io/3CsuPL31cbY8gkSfKlG73/notifications/Update%20Telemetry)  # <-- just parse incoming JSON
+    if not data:
+        return jsonify({"error": "No telemetry data received"}), 400
+    
+    print("📡 Telemetry Received:")
+    print(f"Altitude: {data.get('altitude')} m")
+    print(f"Battery:  {data.get('battery')} %") 
+    print(f"Location: {data.get('lat')}, {data.get('lon')}")
 
 def log_telemetry(data):
     file_exists = os.path.isfile("telemetry_log.csv")
