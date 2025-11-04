@@ -81,15 +81,31 @@ def altitude_data():
         return jsonify(altitude_history)
 
 @app.route('/update_telemetry', methods=['POST'])
-def telemetry():
-    data = request.get_json(https://api.pushcut.io/3CsuPL31cbY8gkSfKlG73/notifications/Update%20Telemetry)  # <-- just parse incoming JSON
+def update_telemetry():
+    """Receive telemetry JSON from iPad Shortcut (Pushcut)."""
+    data = request.get_json()  # ✅ Correct: just parse JSON body
     if not data:
         return jsonify({"error": "No telemetry data received"}), 400
-    
-    print("📡 Telemetry Received:")
+
+    print("\n📡 Telemetry Received:")
     print(f"Altitude: {data.get('altitude')} m")
-    print(f"Battery:  {data.get('battery')} %") 
+    print(f"Battery:  {data.get('battery')} %")
     print(f"Location: {data.get('lat')}, {data.get('lon')}")
+
+    # Update global telemetry
+    with telemetry_lock:
+        for key in telemetry_data:
+            if key in data:
+                telemetry_data[key] = float(data[key])
+        altitude_history.append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "altitude": telemetry_data["altitude"]
+        })
+        if len(altitude_history) > 60:
+            altitude_history.pop(0)
+
+    log_telemetry(telemetry_data)
+    return jsonify({"status": "ok"})
 
 def log_telemetry(data):
     file_exists = os.path.isfile("telemetry_log.csv")
@@ -100,10 +116,10 @@ def log_telemetry(data):
         writer.writerow([datetime.now(), data["altitude"], data["battery"], data["lat"], data["lon"]])
 
 # ==============================
-# OPTIONAL: send telemetry to server from Python (for testing)
+# LOCAL TEST FUNCTION
 # ==============================
 def send_shortcut(payload):
-    """Simulate iPad Shortcut sending telemetry to Flask endpoint."""
+    """Simulate iPad sending telemetry to Flask endpoint."""
     try:
         url = "http://127.0.0.1:5000/update_telemetry"
         r = requests.post(url, json=payload, timeout=5)
