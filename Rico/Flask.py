@@ -1,18 +1,12 @@
-from flask import Flask, request, jsonify, render_template_string
-import threading, requests, csv, os
+from flask import Flask, request, jsonify, render_template_string, redirect, url_for
+import threading, csv, os
 from datetime import datetime
 
-# ==============================
-# GLOBAL TELEMETRY DATA
-# ==============================
+app = Flask(__name__)
+
 telemetry_data = {"altitude": 0, "battery": 0, "lat": 0, "lon": 0}
 altitude_history = []
 telemetry_lock = threading.Lock()
-
-# ==============================
-# FLASK TELEMETRY SERVER
-# ==============================
-app = Flask(__name__)
 
 PAGE = """<!DOCTYPE html>
 <html>
@@ -24,10 +18,15 @@ PAGE = """<!DOCTYPE html>
         .card { display:inline-block; background:#1c1f26; border-radius:15px; padding:20px 40px; margin:10px; box-shadow:0 0 10px #000;}
         h1 { color:#00d1b2; }
         canvas { background:#1c1f26; border-radius:10px; padding:10px; margin-top:20px;}
+        form { background:#1c1f26; padding:20px; border-radius:15px; margin:20px auto; width:300px; }
+        input { margin:5px; padding:5px; width:90%; border-radius:5px; border:none; }
+        button { margin-top:10px; padding:8px 16px; border:none; background:#00d1b2; color:#fff; border-radius:5px; cursor:pointer; }
+        button:hover { background:#00a896; }
     </style>
 </head>
 <body>
     <h1>Drone Telemetry Dashboard</h1>
+
     <div class="card"><p>Altitude: <b id="altitude">0</b> m</p></div>
     <div class="card"><p>Battery: <b id="battery">0</b> %</p></div>
     <div class="card"><p>Latitude: <b id="lat">0</b></p></div>
@@ -35,6 +34,15 @@ PAGE = """<!DOCTYPE html>
 
     <h2 style="color:#00d1b2;">Altitude (Last 60s)</h2>
     <canvas id="altChart" width="800" height="400"></canvas>
+
+    <h2 style="color:#00d1b2;">Manual Telemetry Input</h2>
+    <form action="/manual_update" method="post">
+        <input type="number" step="0.1" name="altitude" placeholder="Altitude (m)" required><br>
+        <input type="number" step="0.1" name="battery" placeholder="Battery (%)" required><br>
+        <input type="number" step="0.000001" name="lat" placeholder="Latitude" required><br>
+        <input type="number" step="0.000001" name="lon" placeholder="Longitude" required><br>
+        <button type="submit">Update Telemetry</button>
+    </form>
 
     <script>
         const ctx = document.getElementById('altChart').getContext('2d');
@@ -80,32 +88,27 @@ def altitude_data():
     with telemetry_lock:
         return jsonify(altitude_history)
 
-@app.route('/update_telemetry', methods=['POST'])
-def update_telemetry():
-    """Receive telemetry JSON from iPad Shortcut (Pushcut)."""
-    data = request.get_json()  # ✅ Correct: just parse JSON body
-    if not data:
-        return jsonify({"error": "No telemetry data received"}), 400
+### NEW — manual input route
+@app.route('/manual_update', methods=['POST'])
+def manual_update():
+    data = {
+        "altitude": float(request.form.get("altitude", 0)),
+        "battery": float(request.form.get("battery", 0)),
+        "lat": float(request.form.get("lat", 0)),
+        "lon": float(request.form.get("lon", 0))
+    }
 
-    print("\n📡 Telemetry Received:")
-    print(f"Altitude: {data.get('altitude')} m")
-    print(f"Battery:  {data.get('battery')} %")
-    print(f"Location: {data.get('lat')}, {data.get('lon')}")
-
-    # Update global telemetry
     with telemetry_lock:
-        for key in telemetry_data:
-            if key in data:
-                telemetry_data[key] = float(data[key])
+        telemetry_data.update(data)
         altitude_history.append({
             "time": datetime.now().strftime("%H:%M:%S"),
-            "altitude": telemetry_data["altitude"]
+            "altitude": data["altitude"]
         })
         if len(altitude_history) > 60:
             altitude_history.pop(0)
 
-    log_telemetry(telemetry_data)
-    return jsonify({"status": "ok"})
+    log_telemetry(data)
+    return redirect(url_for('index'))
 
 def log_telemetry(data):
     file_exists = os.path.isfile("telemetry_log.csv")
@@ -115,21 +118,6 @@ def log_telemetry(data):
             writer.writerow(["timestamp", "altitude", "battery", "lat", "lon"])
         writer.writerow([datetime.now(), data["altitude"], data["battery"], data["lat"], data["lon"]])
 
-# ==============================
-# LOCAL TEST FUNCTION
-# ==============================
-def send_shortcut(payload):
-    """Simulate iPad sending telemetry to Flask endpoint."""
-    try:
-        url = "http://127.0.0.1:5000/update_telemetry"
-        r = requests.post(url, json=payload, timeout=5)
-        print(f"[SEND TEST] Status: {r.status_code}, Response: {r.text}")
-    except Exception as e:
-        print("[SEND TEST ERROR]", e)
-
-# ==============================
-# MAIN
-# ==============================
 if __name__ == "__main__":
     print("Telemetry dashboard running at: http://127.0.0.1:5000")
     app.run(host="0.0.0.0", port=5000, debug=False)
