@@ -1,6 +1,6 @@
 from flask import Flask, render_template_string, jsonify, request
 from datetime import datetime
-import threading, time, random
+import threading
 
 app = Flask(__name__)
 
@@ -17,11 +17,8 @@ telemetry_data = {
 altitude_history = []
 telemetry_lock = threading.Lock()
 
-# Control flag
-simulate_active = False
-
 # ==========================
-# HTML Template
+# HTML Template (Form at Top)
 # ==========================
 dashboard_html = """
 <!DOCTYPE html>
@@ -33,18 +30,9 @@ dashboard_html = """
 <body style="font-family:Arial; text-align:center; margin:40px;">
   <h1>🚁 Drone Telemetry Dashboard</h1>
 
-  <div style="margin-bottom:30px;">
-    <h3>Current Telemetry</h3>
-    <p>Altitude: <span id="altitude">0</span> m</p>
-    <p>Speed: <span id="speed">0</span> m/s</p>
-    <p>Latitude: <span id="latitude">0</span></p>
-    <p>Longitude: <span id="longitude">0</span></p>
-  </div>
-
-  <canvas id="altChart" width="600" height="300"></canvas>
-
-  <h2 style="margin-top:40px;">🧩 Simulation Control</h2>
-  <form id="simulationForm" style="display:inline-block; text-align:left;">
+  <!-- ========== Manual Input Form (TOP) ========== -->
+  <h2>🧩 Manual Telemetry Input</h2>
+  <form id="simulationForm" style="display:inline-block; text-align:left; margin-bottom:30px;">
     <label>Altitude (m):</label><br>
     <input type="number" id="sim_altitude" step="0.1" required><br><br>
     <label>Speed (m/s):</label><br>
@@ -53,10 +41,23 @@ dashboard_html = """
     <input type="text" id="sim_lat" required><br><br>
     <label>Longitude:</label><br>
     <input type="text" id="sim_lon" required><br><br>
-    <button type="submit">Send Simulation Data</button>
+    <button type="submit">Update Telemetry</button>
   </form>
 
+  <!-- ========== Current Data Display ========== -->
+  <div style="margin-bottom:30px;">
+    <h3>Current Telemetry</h3>
+    <p>Altitude: <span id="altitude">0</span> m</p>
+    <p>Speed: <span id="speed">0</span> m/s</p>
+    <p>Latitude: <span id="latitude">0</span></p>
+    <p>Longitude: <span id="longitude">0</span></p>
+  </div>
+
+  <!-- ========== Altitude Chart ========== -->
+  <canvas id="altChart" width="600" height="300"></canvas>
+
   <script>
+    // Fetch telemetry updates
     async function updateTelemetry() {
       const res = await fetch('/telemetry');
       const data = await res.json();
@@ -67,6 +68,7 @@ dashboard_html = """
       updateChart(data.history);
     }
 
+    // Chart.js setup
     const ctx = document.getElementById('altChart').getContext('2d');
     const chart = new Chart(ctx, {
       type: 'line',
@@ -75,7 +77,9 @@ dashboard_html = """
         datasets: [{
           label: 'Altitude (m)',
           data: [],
-          borderWidth: 2
+          borderColor: 'blue',
+          borderWidth: 2,
+          fill: false
         }]
       },
       options: {
@@ -90,6 +94,7 @@ dashboard_html = """
       chart.update();
     }
 
+    // Handle manual form submission
     document.getElementById('simulationForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const data = {
@@ -103,10 +108,11 @@ dashboard_html = """
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(data)
       });
-      alert('Simulation started!');
+      await updateTelemetry();
     });
 
-    setInterval(updateTelemetry, 1000);
+    // Auto-refresh telemetry display
+    setInterval(updateTelemetry, 2000);
   </script>
 </body>
 </html>
@@ -119,60 +125,4 @@ dashboard_html = """
 def index():
     return render_template_string(dashboard_html)
 
-@app.route("/telemetry")
-def telemetry():
-    with telemetry_lock:
-        return jsonify({
-            **telemetry_data,
-            "history": altitude_history
-        })
-
-@app.route("/simulate", methods=["POST"])
-def simulate():
-    global simulate_active
-    data = request.get_json()
-    with telemetry_lock:
-        telemetry_data.update({
-            "altitude": data.get("altitude", telemetry_data["altitude"]),
-            "speed": data.get("speed", telemetry_data["speed"]),
-            "latitude": data.get("latitude", telemetry_data["latitude"]),
-            "longitude": data.get("longitude", telemetry_data["longitude"]),
-        })
-        altitude_history.append({
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "altitude": telemetry_data["altitude"]
-        })
-        if len(altitude_history) > 60:
-            altitude_history.pop(0)
-    simulate_active = True
-    print("[SIM] Manual simulation started:", telemetry_data)
-    return jsonify({"status": "Simulation started"})
-
-# ==========================
-# Controlled Flight Animation
-# ==========================
-def controlled_flight_animation():
-    global simulate_active
-    while True:
-        if simulate_active:
-            for _ in range(10):  # animate for 10 seconds
-                with telemetry_lock:
-                    telemetry_data["altitude"] += random.uniform(-0.3, 0.6)
-                    telemetry_data["speed"] = max(0, telemetry_data["speed"] + random.uniform(-0.1, 0.3))
-                    telemetry_data["latitude"] += random.uniform(-0.00002, 0.00005)
-                    telemetry_data["longitude"] += random.uniform(-0.00002, 0.00005)
-                    altitude_history.append({
-                        "time": datetime.now().strftime("%H:%M:%S"),
-                        "altitude": telemetry_data["altitude"]
-                    })
-                    if len(altitude_history) > 60:
-                        altitude_history.pop(0)
-                time.sleep(1)
-            simulate_active = False  # stop after one animation cycle
-        time.sleep(0.2)
-
-threading.Thread(target=controlled_flight_animation, daemon=True).start()
-
-if __name__ == "__main__":
-    print("[SERVER] Flask dashboard running at http://127.0.0.1:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+@app.rou
