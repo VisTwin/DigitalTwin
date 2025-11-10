@@ -28,10 +28,10 @@ dashboard_html = """
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body style="font-family:Arial; text-align:center; margin:40px;">
-  <h1>🚁 Drone Telemetry Dashboard</h1>
+  <h1>Drone Telemetry Dashboard</h1>
 
   <!-- ========== Manual Input Form (TOP) ========== -->
-  <h2>🧩 Manual Telemetry Input</h2>
+  <h2>Manual Telemetry Input</h2>
   <form id="simulationForm" style="display:inline-block; text-align:left; margin-bottom:30px;">
     <label>Altitude (m):</label><br>
     <input type="number" id="sim_altitude" step="0.1" required><br><br>
@@ -125,4 +125,33 @@ dashboard_html = """
 def index():
     return render_template_string(dashboard_html)
 
-@app.rou
+@app.route("/telemetry")
+def telemetry():
+    with telemetry_lock:
+        return jsonify({
+            **telemetry_data,
+            "history": altitude_history
+        })
+
+@app.route("/simulate", methods=["POST"])
+def simulate():
+    data = request.get_json()
+    with telemetry_lock:
+        telemetry_data.update({
+            "altitude": data.get("altitude", telemetry_data["altitude"]),
+            "speed": data.get("speed", telemetry_data["speed"]),
+            "latitude": data.get("latitude", telemetry_data["latitude"]),
+            "longitude": data.get("longitude", telemetry_data["longitude"]),
+        })
+        altitude_history.append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "altitude": telemetry_data["altitude"]
+        })
+        if len(altitude_history) > 60:
+            altitude_history.pop(0)
+    print("[UPDATE] Manual telemetry data received:", telemetry_data)
+    return jsonify({"status": "Telemetry updated"})
+
+if __name__ == "__main__":
+    print("[SERVER] Flask dashboard running at http://127.0.0.1:5000")
+    app.run(host="0.0.0.0", port=5000, debug=True)
