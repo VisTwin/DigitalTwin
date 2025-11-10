@@ -17,8 +17,11 @@ telemetry_data = {
 altitude_history = []
 telemetry_lock = threading.Lock()
 
+# Control flag
+simulate_active = False
+
 # ==========================
-# HTML Template (Dashboard + Simulation)
+# HTML Template
 # ==========================
 dashboard_html = """
 <!DOCTYPE html>
@@ -54,7 +57,6 @@ dashboard_html = """
   </form>
 
   <script>
-    // Fetch telemetry updates
     async function updateTelemetry() {
       const res = await fetch('/telemetry');
       const data = await res.json();
@@ -65,7 +67,6 @@ dashboard_html = """
       updateChart(data.history);
     }
 
-    // Chart.js setup
     const ctx = document.getElementById('altChart').getContext('2d');
     const chart = new Chart(ctx, {
       type: 'line',
@@ -89,7 +90,6 @@ dashboard_html = """
       chart.update();
     }
 
-    // Simulation form submission
     document.getElementById('simulationForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const data = {
@@ -103,10 +103,9 @@ dashboard_html = """
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(data)
       });
-      alert('Simulation data sent!');
+      alert('Simulation started!');
     });
 
-    // Auto-refresh telemetry
     setInterval(updateTelemetry, 1000);
   </script>
 </body>
@@ -130,6 +129,7 @@ def telemetry():
 
 @app.route("/simulate", methods=["POST"])
 def simulate():
+    global simulate_active
     data = request.get_json()
     with telemetry_lock:
         telemetry_data.update({
@@ -144,29 +144,34 @@ def simulate():
         })
         if len(altitude_history) > 60:
             altitude_history.pop(0)
-    print("[SIM] Telemetry updated:", telemetry_data)
-    return jsonify({"status": "Simulation data updated"})
+    simulate_active = True
+    print("[SIM] Manual simulation started:", telemetry_data)
+    return jsonify({"status": "Simulation started"})
 
 # ==========================
-# Optional Fake Flight Simulation
+# Controlled Flight Animation
 # ==========================
-def fake_flight_simulator():
+def controlled_flight_animation():
+    global simulate_active
     while True:
-        with telemetry_lock:
-            telemetry_data["altitude"] += random.uniform(-0.2, 0.6)
-            telemetry_data["speed"] = max(0, telemetry_data["speed"] + random.uniform(-0.2, 0.4))
-            telemetry_data["latitude"] += random.uniform(-0.00005, 0.00005)
-            telemetry_data["longitude"] += random.uniform(-0.00005, 0.00005)
-            altitude_history.append({
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "altitude": telemetry_data["altitude"]
-            })
-            if len(altitude_history) > 60:
-                altitude_history.pop(0)
-        time.sleep(1)
+        if simulate_active:
+            for _ in range(10):  # animate for 10 seconds
+                with telemetry_lock:
+                    telemetry_data["altitude"] += random.uniform(-0.3, 0.6)
+                    telemetry_data["speed"] = max(0, telemetry_data["speed"] + random.uniform(-0.1, 0.3))
+                    telemetry_data["latitude"] += random.uniform(-0.00002, 0.00005)
+                    telemetry_data["longitude"] += random.uniform(-0.00002, 0.00005)
+                    altitude_history.append({
+                        "time": datetime.now().strftime("%H:%M:%S"),
+                        "altitude": telemetry_data["altitude"]
+                    })
+                    if len(altitude_history) > 60:
+                        altitude_history.pop(0)
+                time.sleep(1)
+            simulate_active = False  # stop after one animation cycle
+        time.sleep(0.2)
 
-# Start simulator in background
-threading.Thread(target=fake_flight_simulator, daemon=True).start()
+threading.Thread(target=controlled_flight_animation, daemon=True).start()
 
 if __name__ == "__main__":
     print("[SERVER] Flask dashboard running at http://127.0.0.1:5000")
