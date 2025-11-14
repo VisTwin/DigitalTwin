@@ -26,14 +26,14 @@ dashboard_html = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Drone Telemetry Dashboard</title>
+  <title> Drone Telemetry Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body style="font-family:Arial; text-align:center; margin:40px;">
-  <h1>🚁 Drone Telemetry Dashboard</h1>
+  <h1>Drone Telemetry Dashboard</h1>
 
   <!-- Manual Input Form -->
-  <h2>🧩 Manual Telemetry Input</h2>
+  <h2> Manual Telemetry Input</h2>
   <form id="simulationForm" style="display:inline-block; text-align:left; margin-bottom:30px;">
     <label>Altitude (m):</label><br>
     <input type="number" id="sim_altitude" step="0.1" required><br><br>
