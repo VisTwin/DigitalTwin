@@ -1,0 +1,83 @@
+import os
+import json
+import queue
+import sounddevice as sd
+from vosk import Model, KaldiRecognizer
+from gpiozero import LED
+import time
+import threading
+
+# === GPIO Setup ===
+# Assuming you use GPIO17 for pump control
+pump = LED(17)
+
+# === Load Vosk model ===
+model_path = "/home/jetson/vosk_model/model"
+if not os.path.exists(model_path):
+    raise FileNotFoundError("Vosk model not found. Check your path.")
+
+model = Model(model_path)
+recognizer = KaldiRecognizer(model, 16000)
+
+# === Audio stream setup ===
+q = queue.Queue()
+
+def callback(indata, frames, time_, status):
+    if status:
+        print(status)
+    q.put(bytes(indata))
+
+# === Example pump control function ===
+def run_tank_control():
+    print("Running coupled-tank control loop...")
+    while pump.is_active:
+        # Here you can put your actual control code:
+        # For example, reading sensors and adjusting pump speeds.
+        print("Pump running... controlling water level")
+        time.sleep(2)  # simulate your control timing
+    print("Pump stopped, control loop ended.")
+
+# Thread holder
+control_thread = None
+
+# === Main listening loop ===
+def listen_for_commands():
+    global control_thread
+
+    with sd.RawInputStream(samplerate=16000, blocksize=8000, dtype='int16',
+                           channels=1, callback=callback):
+        print("🎙️ Voice control ready! Say 'start' or 'stop'.")
+
+        while True:
+            data = q.get()
+            if recognizer.AcceptWaveform(data):
+                result = json.loads(recognizer.Result())
+                text = result.get("text", "").lower()
+                if not text:
+                    continue
+                print("You said:", text)
+
+                if "start" in text:
+                    if not pump.is_active:
+                        pump.on()
+                        print("🟢 Pump started!")
+                        # Start control loop in a separate thread
+                        control_thread = threading.Thread(target=run_tank_control)
+                        control_thread.start()
+                    else:
+                        print("Pump already running.")
+
+                elif "stop" in text:
+                    if pump.is_active:
+                        pump.off()
+                        print("🔴 Pump stopped!")
+                    else:
+                        print("Pump already stopped.")
+
+                elif "exit" in text or "quit" in text:
+                    print("👋 Exiting voice control.")
+                    pump.off()
+                    break
+
+if __name__ == "__main__":
+    listen_for_commands()
