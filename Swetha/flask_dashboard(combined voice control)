@@ -1,0 +1,134 @@
+# flask@dashboard.py
+import time
+import threading
+from flask import Flask, render_template, request, jsonify
+from flask_socketio import SocketIO
+from xarm.wrapper import XArmAPI
+import voice_control  # your existing voice_control.py
+
+# ------------------ CONFIG ------------------
+ROBOT_IP = "192.168.1.152"
+
+# ------------------ FLASK SETUP ------------------
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'lite6secret'
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# ------------------ VOICE CONTROL INTEGRATION ------------------
+import voice_control  # already imported at top
+
+# Pass SocketIO object to your existing voice_control.py
+voice_control.set_socketio(socketio)
+
+# Start voice control in a separate background thread
+import multiprocessing
+
+# Pass SocketIO to voice_control
+voice_control.set_socketio(socketio)
+
+# Start voice control in a separate process
+voice_process = multiprocessing.Process(target=voice_control.listen_for_commands)
+voice_process.start()
+
+
+
+
+# ------------------ XARM SETUP ------------------
+arm = None
+arm_lock = threading.Lock()
+
+def connect_robot():
+    global arm
+    try:
+        with arm_lock:
+            arm = XArmAPI(ROBOT_IP)
+        print(f"Connected to xArm at {ROBOT_IP}")
+    except Exception as e:
+        print("Failed to connect to robot:", e)
+        arm = None
+
+# ------------------ ROBOT POLLING ------------------
+def poll_robot():
+    while True:
+        try:
+            if arm:
+                with arm_lock:
+                    try:
+                        angles = arm.angles
+                    except Exception:
+                        ok, angles = arm.get_servo_angle()
+                        if not ok:
+                            angles = [None]*6
+
+                    try:
+                        pos = arm.position
+                    except Exception:
+                        ok2, pos = arm.get_position()
+                        if not ok2:
+                            pos = [None]*6
+
+                    try:
+                        moving = arm.get_is_moving()[1]
+                    except Exception:
+                        moving = False
+
+                    payload = {
+                        "angles": angles,
+                        "position": pos,
+                        "moving": bool(moving)
+                    }
+                    socketio.emit('robot_state', payload)
+        except Exception as e:
+            socketio.emit('robot_error', {"error": str(e)})
+        time.sleep(0.2)
+
+# ------------------ FLASK ROUTES ------------------
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/voice', methods=['POST'])
+def voice_cmd():
+    data = request.json or {}
+    spoken = data.get('text', '')
+    heard = f"Server received: {spoken}"
+    socketio.emit('voice_log', {"said": spoken, "heard": heard})
+    return jsonify({"status":"ok","heard":heard})
+
+@socketio.on('connect')
+def handle_connect():
+    print("Client connected")
+
+# ------------------ VOICE CONTROL INTEGRATION ------------------
+# Pass SocketIO object to your existing voice_control.py
+voice_control.set_socketio(socketio)
+
+# Start voice control in a separate background thread
+voice_thread = threading.Thread(target=voice_control.listen_for_commands, daemon=True)
+voice_thread.start()
+
+# ------------------ MAIN ------------------
+if __name__ == "__main__":
+    # --- Connect robot ---
+    connect_robot()
+    
+    # --- Start robot polling ---
+    poll_thread = threading.Thread(target=poll_robot, daemon=True)
+    poll_thread.start()
+    
+    # --- Pass SocketIO to voice_control ---
+    voice_control.set_socketio(socketio)
+    
+    # --- Start voice control in separate process ---
+    import multiprocessing
+    voice_process = multiprocessing.Process(target=voice_control.listen_for_commands)
+    voice_process.start()
+    
+    try:
+        # --- Start Flask-SocketIO server ---
+        socketio.run(app, host='0.0.0.0', port=5050, use_reloader=False)
+    finally:
+        # --- Clean up voice process ---
+        if voice_process.is_alive():
+            voice_process.terminate()
+   
