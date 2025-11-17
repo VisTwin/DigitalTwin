@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, jsonify, request
+from flask import Flask, render_template, jsonify, request
 from datetime import datetime
 import threading
 import zmq
