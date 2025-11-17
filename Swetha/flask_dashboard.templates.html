@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LITE6 CONTROL DASHBOARD</title>
+<style>
+body { font-family: Arial; background:#111; color:#eee; padding:16px; }
+h1 { text-align:center; }
+.panel { background:#1b1b1b; padding:12px; border-radius:8px; margin-bottom:12px; }
+.row { display:flex; gap:12px; }
+.col { flex:1; }
+.joint-grid { display:grid; grid-template-columns: repeat(3,1fr); gap:8px; margin-top:8px; }
+.joint { background:#0f0f0f; padding:8px; border-radius:6px; text-align:center; }
+.stat { display:flex; gap:16px; margin-top:8px; align-items:center; }
+.voice { white-space: pre-wrap; background:#0f0f0f; padding:8px; border-radius:6px; color:#cfc; flex:1; }
+.bigboxes { display:flex; gap:12px; margin-top:12px; }
+.bigbox { flex:1; height:360px; border-radius:8px; background:#000; display:flex; align-items:center; justify-content:center; color:#999; overflow:hidden; }
+#simCanvas { width:100%; height:100%; display:block; }
+</style>
+<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+</head>
+<body>
+
+<h1>LITE6 CONTROL DASHBOARD</h1>
+
+<div class="panel">
+    <div><strong>Joint angles:</strong></div>
+    <div class="joint-grid">
+        <div class="joint">JOINT 1: <span id="ja1">-</span></div>
+        <div class="joint">JOINT 2: <span id="ja2">-</span></div>
+        <div class="joint">JOINT 3: <span id="ja3">-</span></div>
+        <div class="joint">JOINT 4: <span id="ja4">-</span></div>
+        <div class="joint">JOINT 5: <span id="ja5">-</span></div>
+        <div class="joint">JOINT 6: <span id="ja6">-</span></div>
+    </div>
+
+    <div style="margin-top:12px;"><strong>Joint Position:</strong></div>
+    <div class="joint-grid">
+        <div class="joint">JOINT 1: <span id="jp1">-</span></div>
+        <div class="joint">JOINT 2: <span id="jp2">-</span></div>
+        <div class="joint">JOINT 3: <span id="jp3">-</span></div>
+        <div class="joint">JOINT 4: <span id="jp4">-</span></div>
+        <div class="joint">JOINT 5: <span id="jp5">-</span></div>
+        <div class="joint">JOINT 6: <span id="jp6">-</span></div>
+    </div>
+
+    <div class="stat">
+        <div><strong>STATUS:</strong> <span id="status">Rest</span></div>
+        <div style="flex:1"></div>
+        <div><strong>Voice log:</strong></div>
+    </div>
+
+    <div style="display:flex; gap:12px; margin-top:8px;">
+        <div class="voice" id="said">-</div>
+        <div class="voice" id="heard">-</div>
+    </div>
+
+    <div style="margin-top:10px;">
+        <button id="startVoice">Start Voice</button>
+        <button id="stopVoice">Stop</button>
+    </div>
+</div>
+
+<div class="bigboxes">
+    <div class="bigbox panel">
+        <video id="liveVideo" autoplay muted playsinline style="width:100%; height:100%; object-fit:cover; background:#000"></video>
+    </div>
+    <div class="bigbox panel">
+        <canvas id="simCanvas"></canvas>
+    </div>
+</div>
+
+<script>
+const socket = io();
+socket.on('robot_state', (data)=>{
+    const a = data.angles||[];
+    const p = data.position||[];
+    for(let i=0;i<6;i++){ document.getElementById('ja'+(i+1)).innerText = a[i]===undefined ? '-' : Number(a[i]).toFixed(2); }
+    for(let i=0;i<6;i++){ document.getElementById('jp'+(i+1)).innerText = p[i]===undefined ? '-' : Number(p[i]).toFixed(2); }
+    document.getElementById('status').innerText = data.moving ? 'Moving' : 'Rest';
+    window.updateSimAngles(a);
+});
+socket.on('voice_log', d=>{ document.getElementById('said').innerText=d.said; document.getElementById('heard').innerText=d.heard; });
+
+let recognition=null;
+if('webkitSpeechRecognition' in window || 'SpeechRecognition' in window){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SR();
+    recognition.lang='en-US'; recognition.interimResults=false; recognition.continuous=false;
+    recognition.onresult = e=>{
+        const t = e.results[0][0].transcript;
+        document.getElementById('said').innerText=t;
+        fetch('/voice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})})
+        .then(r=>r.json()).then(j=>{document.getElementById('heard').innerText=j.heard;});
+    };
+}
+
+document.getElementById('startVoice').onclick=()=>{if(recognition)recognition.start();}
+document.getElementById('stopVoice').onclick=()=>{if(recognition)recognition.stop();}
+
+async function startLocalVideo(){
+    try{
+        const stream = await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+        document.getElementById('liveVideo').srcObject=stream;
+    }catch(e){
+        document.getElementById('liveVideo').style.background='#222';
+    }
+}
+startLocalVideo();
+
+const canvas=document.getElementById('simCanvas'),ctx=canvas.getContext('2d');
+function resizeCanvas(){ canvas.width=canvas.clientWidth; canvas.height=canvas.clientHeight; draw(); }
+window.addEventListener('resize', resizeCanvas); resizeCanvas();
+let simAngles=[0,0,0,0,0,0];
+window.updateSimAngles=arr=>{if(!arr) return; for(let i=0;i<6;i++) simAngles[i]=arr[i]||simAngles[i]; draw(); };
+
+function draw(){
+    const w=canvas.width,h=canvas.height; ctx.clearRect(0,0,w,h);
+    ctx.save(); ctx.translate(w/2,h*0.85); ctx.lineWidth=6; ctx.lineCap='round';
+    const lengths=[60,50,50,40,35,30]; let x=0,y=0,angle=-Math.PI/2;
+    for(let i=0;i<6;i++){
+        angle+=simAngles[i]*Math.PI/180; const L=lengths[i]; const nx=x+L*Math.cos(angle),ny=y+L*Math.sin(angle);
+        ctx.beginPath(); ctx.strokeStyle='#ddd'; ctx.moveTo(x,y); ctx.lineTo(nx,ny); ctx.stroke();
+        ctx.beginPath(); ctx.fillStyle='#ff4d4d'; ctx.arc(x,y,6,0,Math.PI*2); ctx.fill();
+        x=nx;y=ny;
+    }
+    ctx.beginPath(); ctx.fillStyle='#4dff88'; ctx.arc(x,y,7,0,Math.PI*2); ctx.fill(); ctx.restore();
+}
+draw();
+</script>
+
+</body>
+</html>
