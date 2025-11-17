@@ -194,7 +194,6 @@ dashboard_html = """
 </body>
 </html>
 """
-"""
 
 # ==========================
 # Flask API Routes
