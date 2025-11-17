@@ -22,7 +22,7 @@ telemetry_lock = threading.Lock()
 
 @app.route("/")
 def index():
-    return render_template(dashboard.html)
+    return render_template("dashboard.html")
 
 @app.route("/telemetry")
 def telemetry():
