@@ -1,4 +1,5 @@
 from flask import Flask, render_template_string, jsonify, request
+from flask_socketio import SocketIO, emit
 from datetime import datetime
 import threading
 import zmq
@@ -45,10 +46,16 @@ dashboard_html = """
     <div id="viewer"></div>
     <canvas id="altitude"></canvas>
 
+    <!-- Load Socket.IO FIRST -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
     <!-- Three.js Module Loader -->
     <script type="module">
         import * as THREE from "/static/js/three.module.js";
         import { GLTFLoader } from "/static/js/GLTFLoader.js";
+
+        console.log("Three.js loaded:", THREE);
+        console.log("GLTFLoader loaded:", GLTFLoader);
 
         const container = document.getElementById("viewer");
 
@@ -74,6 +81,7 @@ dashboard_html = """
         loader.load(
             "/static/models/dji_mavic_air.glb",
             gltf => {
+                console.log("Model loaded!");
                 droneObj = gltf.scene;
                 droneObj.scale.set(1, 1, 1);
                 scene.add(droneObj);
@@ -88,8 +96,14 @@ dashboard_html = """
         }
         animate();
 
-        // --- LIVE DATA (WebSocket) ---
-        const socket = io();
+        // --- LIVE DATA ---
+        const socket = io({
+            reconnection: true,
+            reconnectionDelay: 500
+        });
+
+        socket.on("connect", () => console.log("WebSocket connected"));
+        socket.on("connect_error", err => console.error("WS error:", err));
 
         socket.on("drone_state", msg => {
             if (!droneObj) return;
@@ -113,7 +127,6 @@ dashboard_html = """
             if (altHistory.length > 100) altHistory.shift();
             altHistory.push(a);
 
-            // Draw
             altCtx.clearRect(0, 0, altCanvas.width, altCanvas.height);
 
             altCtx.beginPath();
@@ -130,11 +143,8 @@ dashboard_html = """
             altCtx.stroke();
         }
     </script>
-
-    <!-- Socket.IO -->
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-
 </body>
+
 </html>
 
 """
@@ -209,4 +219,6 @@ listener_thread.start()
 
 if __name__ == "__main__":
     print("[SERVER] Flask dashboard running at http://127.0.0.1:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    socketio = SocketIO(app, cors_allowed_origins="*")
+    socketio.run(app, host="0.0.0.0", port=5000)
+
