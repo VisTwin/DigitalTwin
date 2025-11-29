@@ -1,0 +1,168 @@
+# flask@dashboard.py
+import time
+import threading
+from flask import Flask, render_template, request, jsonify, Response
+from flask_socketio import SocketIO
+from xarm.wrapper import XArmAPI   # Lite6 SDK
+import cv2
+
+ROBOT_IP = "192.168.1.152"
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'lite6secret'
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+arm = None
+arm_lock = threading.Lock()
+
+# ------------------ Camera globals ------------------
+camera = None
+camera_lock = threading.Lock()
+latest_frame = None
+camera_running = False
+
+def camera_thread_func():
+    """Continuously read frames from the MacBook webcam into latest_frame."""
+    global camera, latest_frame, camera_running
+    with camera_lock:
+        if camera is None:
+            # 0 is usually built-in webcam
+            camera = cv2.VideoCapture(0)
+            # try some common settings (optional)
+            camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    camera_running = True
+    while camera_running:
+        with camera_lock:
+            ok, frame = camera.read()
+        if not ok or frame is None:
+            time.sleep(0.1)
+            continue
+        # Optional: flip horizontally to mirror webcam
+        frame = cv2.flip(frame, 1)
+        # encode to JPEG
+        ret, jpeg = cv2.imencode('.jpg', frame)
+        if ret:
+            latest_frame = jpeg.tobytes()
+        else:
+            latest_frame = None
+        time.sleep(0.03)  # ~30 FPS read
+
+def gen_video_stream():
+    """Generator function for flask streaming endpoint (MJPEG)."""
+    global latest_frame
+    while True:
+        if latest_frame is None:
+            # send a tiny black frame until we have a real one
+            blank = b'\xff\xd8' + b'\xff' * 100 + b'\xff\xd9'
+            frame = blank
+        else:
+            frame = latest_frame
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        time.sleep(0.03)
+
+# ------------------ Robot connection + polling ------------------
+def connect_robot():
+    """Connect to Lite6 once at startup"""
+    global arm
+    try:
+        with arm_lock:
+            arm = XArmAPI(ROBOT_IP)
+        print(f"[OK] Connected to robot at {ROBOT_IP}")
+    except Exception as e:
+        print("[ERROR] Could not connect:", e)
+        arm = None
+
+def poll_robot():
+    """Continuously broadcast robot angles + position to dashboard"""
+    while True:
+        try:
+            if arm is not None:
+                with arm_lock:
+                    # Joint angles
+                    try:
+                        angles = arm.angles
+                    except:
+                        ok, angles = arm.get_servo_angle()
+                        if not ok:
+                            angles = [0,0,0,0,0,0]
+
+                    # TCP Position
+                    try:
+                        pos = arm.position
+                    except:
+                        ok2, pos = arm.get_position()
+                        if not ok2:
+                            pos = [0,0,0,0,0,0]
+
+                    # Moving state
+                    try:
+                        moving = arm.get_is_moving()[1]
+                    except:
+                        moving = False
+
+                # Broadcast to dashboard (this sends the angles to client JS)
+                socketio.emit("robot_state", {
+                    "angles": angles,
+                    "position": pos,
+                    "moving": bool(moving)
+                })
+
+        except Exception as e:
+            socketio.emit("robot_error", {"error": str(e)})
+
+        time.sleep(0.15)   # ~7 updates/sec
+
+# ------------------ Flask routes ------------------
+@app.route('/')
+def index():
+    return render_template("index.html")
+
+@app.route('/voice', methods=['POST'])
+def voice_cmd():
+    """Receive speech text from browser"""
+    data = request.json or {}
+    spoken = data.get('text', '')
+    heard = f"Server received: {spoken}"
+    socketio.emit("voice_log", {"said": spoken, "heard": heard})
+    return jsonify({"status": "ok", "heard": heard})
+
+# This route returns the latest joint angles as JSON (useful for fetch clients)
+@app.route('/joints')
+def joints():
+    global arm, arm_lock
+    if arm is None:
+        return jsonify({"joints": [0]*6})
+    with arm_lock:
+        try:
+            angles = arm.angles
+        except:
+            ok, angles = arm.get_servo_angle()
+            if not ok:
+                angles = [0]*6
+    return jsonify({"joints": angles})
+
+# ------------------ Video feed route ------------------
+@app.route('/video_feed')
+def video_feed():
+    return Response(gen_video_stream(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@socketio.on("connect")
+def handle_connect():
+    print("[Client Connected]")
+
+# ------------------ App startup ------------------
+if __name__ == "__main__":
+    # start robot connection and polling thread
+    connect_robot()
+    thr = threading.Thread(target=poll_robot, daemon=True)
+    thr.start()
+
+    # start camera thread
+    cam_thr = threading.Thread(target=camera_thread_func, daemon=True)
+    cam_thr.start()
+
+    # start flask socketio
+    socketio.run(app, host="0.0.0.0", port=5050)
