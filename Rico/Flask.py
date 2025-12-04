@@ -1,7 +1,3 @@
-Here is the full, corrected Python script containing the enhanced HTML/JavaScript (dashboard_html) to display live telemetry data in columns and update the altitude graph with a blue dot, along with all the necessary Python indentation fixes.
-🚀 Full Corrected Python File
-Python
-
 from flask import Flask, render_template_string, jsonify, request
 from flask_socketio import SocketIO
 from datetime import datetime
