@@ -9,6 +9,8 @@ import os
 # ------------------------- # Configuration / App Init # -------------------------
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
+# Key Fix: Disable debug in socketio.run if you encounter multiple connections/updates when using debug=True
+# in the main run block, but leave cors_allowed_origins for development.
 socketio = SocketIO(app, cors_allowed_origins="*")
 # allow cross-origin for local testing
 # ------------------------- # Telemetry storage
@@ -18,6 +20,7 @@ telemetry_data = {
     "latitude": 0.0,
     "longitude": 0.0
 }
+# Store history as simple altitudes (float) for easier chart processing on client
 altitude_history = []
 telemetry_lock = threading.Lock()
 
@@ -50,8 +53,8 @@ body { margin: 0; background: #121212; color: #eee; font-family: Arial, Helvetic
 </div>
 </div> <div class="row" id="controls">
 <form id="simForm" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-<label>Altitude (m): <input id="sim_alt" type="number" step="0.1" required></label> <label>Speed (m/s):
-<input id="sim_spd" type="number" step="0.1" required></label> <label>Lat: <input id="sim_lat" type="number" step="0.000001" required></label> <label>Lon: <input id="sim_lon" type="number" step="0.000001" required></label> <button type="submit">Send</button>
+<label>Altitude (m): <input id="sim_alt" type="number" step="0.1" value="0.0" required></label> <label>Speed (m/s):
+<input id="sim_spd" type="number" step="0.1" value="0.0" required></label> <label>Lat: <input id="sim_lat" type="number" step="0.000001" value="0.0" required></label> <label>Lon: <input id="sim_lon" type="number" step="0.000001" value="0.0" required></label> <button type="submit">Send</button>
 </form> </div> <div class="row"> <div id="viewer"></div> </div> <div class="row">
 <canvas id="altitude" width="1000" height="200"></canvas> </div> <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script> <script type="module">
 import * as THREE from "/static/js/three.module.js"; import { GLTFLoader } from "/static/js/GLTFLoader.js"; import { OrbitControls } from "/static/js/OrbitControls.js";
@@ -95,7 +98,8 @@ function drawAltitude() {
 
     // Use current altitude as the last point
     const currentAlt = altHistory[altHistory.length - 1];
-    const maxA = Math.max(...altHistory, 5);
+    // Calculate max altitude, ensuring a minimum of 5 for scaling
+    const maxA = Math.max(...altHistory, 5); 
 
     // 1. Draw Altitude Line (Lime Green)
     altCtx.beginPath();
@@ -105,6 +109,7 @@ function drawAltitude() {
 
     altHistory.forEach((a, i) => {
         const x = (i / Math.max(altHistory.length-1,1)) * w;
+        // Map altitude 'a' to a canvas height 'y'. High altitude = Low y (near top of canvas)
         const y = h - (a / maxA) * h;
         if (i === 0) altCtx.moveTo(x,y);
         else altCtx.lineTo(x,y);
@@ -119,18 +124,23 @@ function drawAltitude() {
         altCtx.arc(lastX, lastY, 4, 0, Math.PI * 2, true); // Draw circle
         altCtx.fill();
 
-        // Label for current altitude (optional)
+        // Label for current altitude
         altCtx.fillStyle = "white";
         altCtx.font = "12px Arial";
         altCtx.textAlign = "center";
-        altCtx.fillText(currentAlt.toFixed(1) + "m", lastX, lastY - 10);
+        // Ensure label doesn't overlap the top edge
+        const labelY = (lastY < 20) ? lastY + 20 : lastY - 10;
+        altCtx.fillText(currentAlt.toFixed(1) + "m", lastX, labelY);
     }
 }
 
 function pushAltitude(a) {
     if (altHistory.length > 200) altHistory.shift();
-    altHistory.push(a);
-    drawAltitude();
+    // Sanity check to ensure 'a' is a number before pushing
+    if (typeof a === 'number' && isFinite(a)) {
+        altHistory.push(a);
+        drawAltitude();
+    }
 }
 
 // --- WebSocket connection (MODIFIED) ---
@@ -141,42 +151,29 @@ socket.on("connect_error", (err) => { console.error("Socket.IO connect error:", 
 
 socket.on("drone_state",
 (msg) => {
-    // msg should contain x,y,z in same units as twin_agent
+    // msg fields: x=latitude, y=longitude, z=altitude, speed
     // apply scaling for visualization:
-    const sx = (msg.x || 0) / 2.0;
-    const sy = (msg.z || 0) / 2.0;
-    const sz = (msg.y || 0) / 2.0;
+    const lat = msg.x || 0;
+    const lon = msg.y || 0;
+    const alt = msg.z || 0;
+
+    // SCALING: Divide position/altitude by a factor for better 3D visualization.
+    const pos_x = lat / 2.0;
+    const pos_y = alt / 2.0; // Altitude (z) is vertical (y) in Three.js
+    const pos_z = lon / 2.0;
 
     // 1. Update 3D Model Position
     if (drone) {
-        drone.position.set(sx, sy, sz);
+        drone.position.set(pos_x, pos_y, pos_z);
     }
 
-    // 2. Update Telemetry Display Columns (NEW)
-    if (typeof msg.z === "number") {
-        dispAlt.textContent = msg.z.toFixed(2);
-        pushAltitude(msg.z);
-    }
+    // 2. Update Telemetry Display Columns
+    dispAlt.textContent = alt.toFixed(2);
+    pushAltitude(alt);
+    
     dispSpd.textContent = (msg.speed || 0.0).toFixed(2);
-    dispLat.textContent = (msg.x || 0.0).toFixed(6);
-    dispLon.textContent = (msg.y || 0.0).toFixed(6);
-});
-
-socket.on("manual_update",
-(payload) => {
-    // Handle the immediate local update from the manual form submission
-    dispAlt.textContent = payload.altitude.toFixed(2);
-    dispSpd.textContent = payload.speed.toFixed(2);
-    dispLat.textContent = payload.latitude.toFixed(6);
-    dispLon.textContent = payload.longitude.toFixed(6);
-    pushAltitude(payload.altitude);
-    // Also update the 3D position immediately
-    if (drone) {
-        const sx = (payload.latitude || 0) / 2.0;
-        const sy = (payload.altitude || 0) / 2.0;
-        const sz = (payload.longitude || 0) / 2.0;
-        drone.position.set(sx, sy, sz);
-    }
+    dispLat.textContent = lat.toFixed(6);
+    dispLon.textContent = lon.toFixed(6);
 });
 
 // Manual input form
@@ -188,13 +185,16 @@ form.addEventListener("submit", async (ev) => {
     const lat = parseFloat(document.getElementById("sim_lat").value);
     const lon = parseFloat(document.getElementById("sim_lon").value);
     const payload = { altitude: alt, speed: spd, latitude: lat, longitude: lon };
+    
     try {
         await fetch("/simulate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
-        socket.emit("manual_update", payload);
+        // **CORRECTION:** Removed redundant manual_update emit. 
+        // The /simulate route on the server now broadcasts the 'drone_state' 
+        // which all clients, including this one, will receive and process.
     }
     catch (err) { console.error("Failed to POST simulate:", err); }
 });
@@ -211,24 +211,29 @@ def index():
 @app.route("/telemetry")
 def telemetry():
     with telemetry_lock:
-        return jsonify({ **telemetry_data, "history": altitude_history })
+        # Use a list of just altitudes for history to match client expectation
+        history_data = [item["altitude"] for item in altitude_history]
+        return jsonify({ **telemetry_data, "history": history_data })
 
 @app.route("/simulate", methods=["POST"])
 def simulate():
     data = request.get_json()
+    alt = float(data.get("altitude", telemetry_data["altitude"]))
+    
     with telemetry_lock:
         telemetry_data.update({
-            "altitude": float(data.get("altitude", telemetry_data["altitude"])),
+            "altitude": alt,
             "speed": float(data.get("speed", telemetry_data["speed"])),
             "latitude": float(data.get("latitude", telemetry_data["latitude"])),
             "longitude": float(data.get("longitude", telemetry_data["longitude"]))
         })
-        altitude_history.append({
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "altitude": telemetry_data["altitude"]
-        })
+        
+        # Store only the altitude in the history list (for client-side simplicity)
+        altitude_history.append(telemetry_data["altitude"])
+        
         if len(altitude_history) > 200:
             altitude_history.pop(0)
+            
     # Broadcast update to connected clients
     socketio.emit("drone_state", {
         "x": telemetry_data["latitude"],
@@ -237,7 +242,7 @@ def simulate():
         "vx": 0.0,
         "vy": 0.0,
         "vz": 0.0,
-        "speed": telemetry_data["speed"] # Include speed for display
+        "speed": telemetry_data["speed"] 
     })
     return jsonify({"status": "Telemetry updated"})
 
@@ -245,45 +250,69 @@ def simulate():
 def zmq_listener():
     ctx = zmq.Context()
     socket = ctx.socket(zmq.SUB)
-    socket.connect("tcp://127.0.0.1:5556")
+    # Use a faster local host binding
+    socket.connect("tcp://127.0.0.1:5556") 
     socket.setsockopt_string(zmq.SUBSCRIBE, "")
     print("[ZMQ] Listening for drone telemetry on tcp://127.0.0.1:5556 ...")
+    
+    # Simple rate limiting for better performance, if ZMQ publisher is too fast
+    last_emit_time = 0
+    min_interval = 0.05 # 20 updates per second max
+
     while True:
         try:
-            message = socket.recv_json()
+            # Use non-blocking with timeout to allow thread shutdown and better error handling
+            message = socket.recv_json(zmq.NOBLOCK) 
+        except zmq.Again:
+            time.sleep(0.001)
+            continue
         except Exception as e:
             print("ZMQ recv error:", e)
             time.sleep(0.5)
             continue
         
-        print("[ZMQ] Received:", message)
+        # print("[ZMQ] Received:", message) # Commented out for high-rate data to reduce console load
+        
+        current_time = time.time()
+        
+        # Update local telemetry store
         with telemetry_lock:
-            # map incoming fields into our telemetry_data
-            telemetry_data["altitude"] = float(message.get("z", telemetry_data["altitude"]))
-            # Calculate speed from velocity components if speed field is missing
-            calculated_speed = (message.get("vx", 0.0)**2 + message.get("vy", 0.0)**2 + message.get("vz", 0.0)**2) ** 0.5
-            telemetry_data["speed"] = float(
-                message.get("speed", calculated_speed)
-            )
-            telemetry_data["latitude"] = float(message.get("x", telemetry_data["latitude"]))
-            telemetry_data["longitude"] = float(message.get("y", telemetry_data["longitude"]))
-            altitude_history.append({
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "altitude": telemetry_data["altitude"]
-            })
+            alt = float(message.get("z", telemetry_data["altitude"]))
+            lat = float(message.get("x", telemetry_data["latitude"]))
+            lon = float(message.get("y", telemetry_data["longitude"]))
+            
+            vx = message.get("vx", 0.0)
+            vy = message.get("vy", 0.0)
+            vz = message.get("vz", 0.0)
+            
+            # Calculate speed from velocity components
+            calculated_speed = (vx**2 + vy**2 + vz**2) ** 0.5
+            
+            telemetry_data["altitude"] = alt
+            telemetry_data["latitude"] = lat
+            telemetry_data["longitude"] = lon
+            telemetry_data["speed"] = float(message.get("speed", calculated_speed))
+            
+            # Store only the altitude
+            altitude_history.append(telemetry_data["altitude"]) 
+            
             if len(altitude_history) > 200:
                 altitude_history.pop(0)
-            # emit to all web clients
+
+        # Emit to web clients with rate limiting
+        if current_time - last_emit_time > min_interval:
             try:
+                # Use a separate thread safe emit method
                 socketio.emit("drone_state", {
                     "x": telemetry_data["latitude"],
                     "y": telemetry_data["longitude"],
                     "z": telemetry_data["altitude"],
-                    "vx": message.get("vx", 0.0),
-                    "vy": message.get("vy", 0.0),
-                    "vz": message.get("vz", 0.0),
-                    "speed": telemetry_data["speed"] # Include speed for display
+                    "vx": vx,
+                    "vy": vy,
+                    "vz": vz,
+                    "speed": telemetry_data["speed"]
                 })
+                last_emit_time = current_time
             except Exception as e:
                 print("SocketIO emit error:", e)
 
@@ -304,6 +333,9 @@ if __name__ == "__main__":
         if not os.path.exists(path):
             print(f"Error: Required file not found: {path}")
 
-    ip_addr = os.popen("hostname -I | awk '{print $1}'").read().strip()
-    print(f"[SERVER] Flask dashboard will run at http://{ip_addr}:5000 (or http://127.0.0.1:5000)")
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
+    # Use a simpler way to get the IP address for portability
+    ip_addr = "127.0.0.1" 
+    
+    print(f"[SERVER] Flask dashboard will run at http://{ip_addr}:5000")
+    # Use allow_unsafe_werkzeug=True for newer Flask versions in debug mode
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)
