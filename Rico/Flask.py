@@ -36,213 +36,183 @@ dashboard_html = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<title>Drone Dashboard</title>
-<style>
-  body { margin: 0; background: #121212; color: #eee; font-family: Arial, Helvetica, sans-serif; }
-  #viewer { width: 100%; height: 480px; min-height: 480px; background: #000; display:block; }
-  #altitude { width: 100%; height: 200px; display:block; background:#111; }
-  .row { max-width: 1000px; margin: 0 auto; padding: 8px; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Drone Dashboard</title>
 
-  /* New 2-column telemetry form */
-  .form-grid {
-    display: flex;
-    gap: 20px;
-    flex-wrap: wrap;
-    background: #1a1a1a;
-    padding: 12px;
-    border-radius: 6px;
-  }
-  .form-grid .col {
-    flex: 1;
-    min-width: 220px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .form-grid label {
-    display: flex;
-    flex-direction: column;
-    font-size: 0.9rem;
-  }
-  .form-grid input {
-    padding: 6px 8px;
-    background: #222;
-    border: 1px solid #444;
-    color: #fff;
-    border-radius: 4px;
-  }
-  .submit-btn {
-    margin-top: auto;
-    padding: 10px 16px;
-    background: #0099ff;
-    color: #000;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  .submit-btn:hover { background: #33adff; }
-</style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <style>
+        body {
+            background: #111;
+            color: #fff;
+            font-family: Arial;
+        }
+        .title {
+            width: 90%;
+            margin: 20px auto;
+            font-size: 24px;
+        }
+        .panel {
+            width: 90%;
+            margin: auto;
+            background: #2b2b2b;
+            padding: 15px;
+            border-radius: 12px;
+        }
+        .row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        input {
+            flex: 1;
+            background: #444;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            border: none;
+        }
+        button {
+            background: #0a84ff;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        canvas {
+            background: #000;
+            border-radius: 12px;
+        }
+        #droneContainer {
+            width: 90%;
+            height: 400px;
+            margin: 20px auto;
+            background: #2b2b2b;
+            border-radius: 12px;
+        }
+    </style>
 </head>
 <body>
 
-  <div class="row"><h2>Real-Time Drone Dashboard</h2></div>
+    <div class="title">Real-Time Drone Dashboard</div>
 
-  <div class="row" id="controls">
-    <form id="simForm" class="form-grid">
+    <div class="panel">
+        <div class="row">
+            <input id="altitudeInput" type="number" placeholder="Altitude (manual override)">
+            <button onclick="sendManual()">Send</button>
+        </div>
+    </div>
 
-      <div class="col">
-        <label>Altitude (m)
-          <input id="sim_alt" type="number" step="0.1" required>
-        </label>
+    <div class="panel" style="margin-top:20px;">
+        <canvas id="altitudeChart"></canvas>
+    </div>
 
-        <label>Speed (m/s)
-          <input id="sim_spd" type="number" step="0.1" required>
-        </label>
-      </div>
+    <div id="droneContainer"></div>
 
-      <div class="col">
-        <label>Latitude
-          <input id="sim_lat" type="number" step="0.000001" required>
-        </label>
+    <script>
+        /* -------------------------
+           WEBSOCKET TELEMETRY
+        -------------------------- */
 
-        <label>Longitude
-          <input id="sim_lon" type="number" step="0.000001" required>
-        </label>
-      </div>
+        const ws = new WebSocket("ws://localhost:8765");
 
-      <button class="submit-btn" type="submit">Send</button>
-    </form>
-  </div>
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            const altitude = data.z; // using Z as altitude
 
-  <div class="row"><div id="viewer"></div></div>
-  <div class="row"><canvas id="altitude" width="1000" height="200"></canvas></div>
+            updateCharts(altitude);
+            updateDroneRotation(data.vx, data.vy, data.vz);
+        };
 
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+        function sendManual() {
+            const val = parseFloat(document.getElementById("altitudeInput").value);
+            if (!isNaN(val)) updateCharts(val);
+        }
 
-  <!-- Three.js modules -->
-  <script type="module">
-    import * as THREE from "/static/js/three.module.js";
-    import { GLTFLoader } from "/static/js/GLTFLoader.js";
-    import { OrbitControls } from "/static/js/OrbitControls.js";
+        /* -------------------------
+           ALTITUDE CHART
+        -------------------------- */
 
-    // --- 3D Scene ---
-    const container = document.getElementById("viewer");
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(window.devicePixelRatio || 1);
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    container.appendChild(renderer.domElement);
+        const ctx = document.getElementById("altitudeChart");
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0a0a);
+        const labels = [];
+        const altitudeData = [];
 
-    const camera = new THREE.PerspectiveCamera(50, container.clientWidth/container.clientHeight, 0.1, 1000);
-    camera.position.set(3, 2, 5);
+        const altitudeChart = new Chart(ctx, {
+            type: "line",
+            data: {
+                labels,
+                datasets: [{
+                    label: "Altitude (m)",
+                    data: altitudeData,
+                    borderColor: "#0a84ff",
+                    backgroundColor: "#0a84ff",
+                    borderWidth: 3,
+                    pointRadius: 5,
+                    pointBackgroundColor: "#0a84ff",
+                    pointBorderColor: "#fff"
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: { ticks: { color: "#aaa" } },
+                    y: { ticks: { color: "#aaa" } }
+                }
+            }
+        });
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x080820, 1.0));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.6);
-    dir.position.set(10, 10, 10);
-    scene.add(dir);
-    scene.add(new THREE.GridHelper(10, 20));
+        function updateCharts(alt) {
+            const time = new Date().toLocaleTimeString();
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, 0.5, 0);
-    controls.update();
+            labels.push(time);
+            altitudeData.push(alt);
+            altitudeChart.update();
+        }
 
-    let drone = null;
-    const loader = new GLTFLoader();
-    loader.load(
-      "/static/models/dji_mavic_air.glb",
-      (gltf) => {
-        drone = gltf.scene;
-        drone.scale.set(0.8, 0.8, 0.8);
-        drone.position.set(0, 0, 0);
+        /* -------------------------
+           3D DRONE MODEL (Three.js)
+        -------------------------- */
+
+        const container = document.getElementById("droneContainer");
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(
+            70,
+            container.clientWidth / container.clientHeight,
+            0.1,
+            1000
+        );
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        container.appendChild(renderer.domElement);
+
+        const geometry = new THREE.BoxGeometry(2, 0.5, 1.5);
+        const material = new THREE.MeshStandardMaterial({ color: 0x00aaff });
+        const drone = new THREE.Mesh(geometry, material);
         scene.add(drone);
-        console.log("GLB loaded successfully");
-      },
-      undefined,
-      (err) => console.error("GLB load error:", err)
-    );
 
-    function animate() {
-      requestAnimationFrame(animate);
-      renderer.render(scene, camera);
-    }
-    animate();
+        const light = new THREE.PointLight(0xffffff, 1);
+        light.position.set(5, 5, 5);
+        scene.add(light);
 
-    // --- Altitude Plot ---
-    const altCanvas = document.getElementById("altitude");
-    const altCtx = altCanvas.getContext("2d");
-    let altHistory = [];
+        camera.position.z = 5;
 
-    function drawAltitude() {
-      const w = altCanvas.width;
-      const h = altCanvas.height;
-      altCtx.clearRect(0,0,w,h);
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+        animate();
 
-      altCtx.fillStyle = "#070707";
-      altCtx.fillRect(0,0,w,h);
-
-      if (!altHistory.length) return;
-
-      const maxA = Math.max(...altHistory, 5);
-      altCtx.beginPath();
-      altCtx.strokeStyle = "lime";
-      altCtx.lineWidth = 2;
-
-      altHistory.forEach((a, i) => {
-        const x = (i / Math.max(altHistory.length-1,1)) * w;
-        const y = h - (a / maxA) * h;
-        if (i === 0) altCtx.moveTo(x,y);
-        else altCtx.lineTo(x,y);
-      });
-      altCtx.stroke();
-    }
-
-    function pushAltitude(a) {
-      if (altHistory.length > 200) altHistory.shift();
-      altHistory.push(a);
-      drawAltitude();
-    }
-
-    // --- Socket.IO ---
-    const socket = io();
-
-    socket.on("drone_state", (msg) => {
-      const sx = (msg.x || 0) / 2;
-      const sy = (msg.z || 0) / 2;
-      const sz = (msg.y || 0) / 2;
-
-      if (drone) drone.position.set(sx, sy, sz);
-      if (typeof msg.z === "number") pushAltitude(msg.z);
-    });
-
-    // --- Manual telemetry submission ---
-    document.getElementById("simForm").addEventListener("submit", async (ev) => {
-      ev.preventDefault();
-      const payload = {
-        altitude: parseFloat(sim_alt.value),
-        speed: parseFloat(sim_spd.value),
-        latitude: parseFloat(sim_lat.value),
-        longitude: parseFloat(sim_lon.value)
-      };
-
-      await fetch("/simulate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      socket.emit("manual_update", payload);
-    });
-
-    // Handle resizing
-    window.addEventListener("resize", () => {
-      renderer.setSize(container.clientWidth, container.clientHeight);
-      camera.aspect = container.clientWidth / container.clientHeight;
-      camera.updateProjectionMatrix();
-    });
-  </script>
+        function updateDroneRotation(vx, vy, vz) {
+            drone.rotation.x += vy * 0.05;
+            drone.rotation.y += vx * 0.05;
+            drone.rotation.z += vz * 0.05;
+        }
+    </script>
 
 </body>
 </html>
