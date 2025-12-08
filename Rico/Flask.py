@@ -1,3 +1,4 @@
+# app.py
 from flask import Flask, render_template_string, jsonify, request, send_from_directory
 from flask_socketio import SocketIO
 from datetime import datetime
@@ -7,15 +8,10 @@ import time
 import os
 
 # -------------------------
-# Configuration / App Init
+# App init
 # -------------------------
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 socketio = SocketIO(app, cors_allowed_origins="*")
-
-# Ensure static files serve with correct MIME types (ES module requirement)
-@app.route('/static/<path:path>')
-def static_proxy(path):
-    return send_from_directory("static", path)
 
 # -------------------------
 # Telemetry storage
@@ -28,229 +24,363 @@ telemetry_data = {
 }
 altitude_history = []
 telemetry_lock = threading.Lock()
+MAX_HISTORY = 200
 
 # -------------------------
-# HTML Dashboard Template
+# HTML Template (single-file)
 # -------------------------
 dashboard_html = """
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-Time Drone Dashboard</title>
+  <meta charset="utf-8"/>
+  <title>Real-Time Drone Dashboard</title>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Socket.IO -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
-    <style>
-        body {
-            background: #111;
-            color: #fff;
-            font-family: Arial;
-            margin: 0;
-            padding: 0;
-        }
-        .title {
-            width: 90%;
-            margin: 20px auto;
-            font-size: 24px;
-        }
-        .panel {
-            width: 90%;
-            margin: auto;
-            background: #2b2b2b;
-            padding: 15px;
-            border-radius: 12px;
-        }
-        .row {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        input {
-            flex: 1;
-            background: #444;
-            color: white;
-            padding: 10px;
-            border-radius: 8px;
-            border: none;
-        }
-        button {
-            background: #0a84ff;
-            color: white;
-            border: none;
-            border-radius: 12px;
-            padding: 10px 20px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        canvas {
-            background: #000;
-            border-radius: 12px;
-        }
-        #droneContainer {
-            width: 90%;
-            height: 400px;
-            margin: 20px auto;
-            background: #2b2b2b;
-            border-radius: 12px;
-        }
-    </style>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Three.js and GLTFLoader (from CDN) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <style>
+    :root{
+      --bg: #0f0f10;
+      --panel: #2b2b2b;
+      --muted: #444;
+      --blue: #0a84ff;
+      --green: #00c46a;
+      --card-radius: 12px;
+    }
+    html,body { height:100%; margin:0; background:var(--bg); color:#fff; font-family: Inter, Arial, sans-serif; }
+    .container { max-width:1100px; margin:18px auto; padding:12px; }
+    h1 { margin:0 0 12px 0; font-weight:600; font-size:20px; }
+
+    /* Panel */
+    .panel { background: var(--panel); padding:14px; border-radius: var(--card-radius); margin-bottom:14px; box-shadow: 0 2px 0 rgba(0,0,0,0.4); }
+
+    /* Manual form layout */
+    .form-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    .form-group { flex:1; min-width:160px; display:flex; flex-direction:column; gap:6px; }
+    label { font-size:0.85rem; color:#ddd; }
+    input[type="number"], input[type="text"] {
+      padding:8px 10px; border-radius:8px; border:1px solid #3a3a3a; background:#111; color:#fff;
+      outline:none; box-sizing:border-box;
+    }
+
+    /* Button */
+    .btn { background: var(--blue); color:#fff; padding:10px 16px; border-radius:12px; border:none; cursor:pointer; font-weight:600; min-width:88px; }
+    .btn:active{ transform: translateY(1px); }
+
+    /* Numeric values row (green on grey) */
+    .values-row { display:flex; gap:12px; margin-top:12px; }
+    .value-box { flex:1; min-width:120px; background:#3a3a3a; border-radius:10px; padding:12px; text-align:center; }
+    .value-box .label { font-size:0.8rem; color:#cfcfcf; margin-bottom:6px; }
+    .value-box .value { font-size:1.1rem; color: var(--green); font-weight:700; }
+
+    /* Chart area */
+    .chart-wrap { margin-top:12px; }
+    canvas { background:#000; border-radius:8px; display:block; width:100%; height:360px !important; }
+
+    /* 3D container */
+    #viewer { width:100%; height:420px; background:#101010; border-radius:8px; margin-top:14px; }
+
+    /* Responsive */
+    @media (max-width:800px){
+      .form-row { flex-direction:column; }
+      .values-row { flex-direction:column; }
+      #viewer { height:300px; }
+      canvas { height:260px !important; }
+    }
+  </style>
 </head>
 <body>
-
-    <div class="title">Real-Time Drone Dashboard</div>
+  <div class="container">
+    <h1>Real-Time Drone Dashboard</h1>
 
     <div class="panel">
-        <div class="row">
-            <input id="altitudeInput" type="number" placeholder="Altitude (manual override)">
-            <button onclick="sendManual()">Send</button>
+      <form id="simForm" onsubmit="return false;">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="sim_alt">Altitude (m)</label>
+            <input id="sim_alt" type="number" step="0.1" placeholder="e.g. 3.5">
+          </div>
+
+          <div class="form-group">
+            <label for="sim_lat">Latitude</label>
+            <input id="sim_lat" type="number" step="0.000001" placeholder="e.g. 37.123456">
+          </div>
+
+          <div class="form-group">
+            <label for="sim_lon">Longitude</label>
+            <input id="sim_lon" type="number" step="0.000001" placeholder="e.g. -122.123456">
+          </div>
+
+          <div class="form-group" style="max-width:160px;">
+            <label for="sim_spd">Speed (m/s)</label>
+            <input id="sim_spd" type="number" step="0.1" placeholder="e.g. 1.2">
+          </div>
+
+          <div style="display:flex; align-items:end;">
+            <button id="sendBtn" class="btn">Send</button>
+          </div>
         </div>
+
+        <div class="values-row" style="margin-top:14px;">
+          <div class="value-box">
+            <div class="label">Altitude</div>
+            <div id="val_alt" class="value">0.00</div>
+          </div>
+          <div class="value-box">
+            <div class="label">Latitude</div>
+            <div id="val_lat" class="value">0.000000</div>
+          </div>
+          <div class="value-box">
+            <div class="label">Longitude</div>
+            <div id="val_lon" class="value">0.000000</div>
+          </div>
+          <div class="value-box">
+            <div class="label">Speed</div>
+            <div id="val_spd" class="value">0.00</div>
+          </div>
+        </div>
+      </form>
     </div>
 
-    <div class="panel" style="margin-top:20px;">
-        <canvas id="altitudeChart"></canvas>
+    <div class="panel">
+      <div class="chart-wrap">
+        <canvas id="altChart"></canvas>
+      </div>
+
+      <div id="viewer"></div>
     </div>
+  </div>
 
-    <div id="droneContainer"></div>
+<script>
+  // ---- Client-side SocketIO ----
+  const socket = io();
 
-    <script>
-        /* -------------------------
-           WEBSOCKET TELEMETRY
-        -------------------------- */
+  // Local history for chart (same length as server MAX_HISTORY)
+  const labels = [];
+  const altData = [];
 
-        const ws = new WebSocket("ws://localhost:8765");
+  // Chart.js setup (blue line + blue dots)
+  const ctx = document.getElementById('altChart').getContext('2d');
+  const altChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Altitude (m)',
+        data: altData,
+        borderColor: '#0a84ff',
+        backgroundColor: '#0a84ff',
+        borderWidth: 2,
+        pointRadius: 5,
+        pointBackgroundColor: '#0a84ff',
+        pointBorderColor: '#fff',
+        tension: 0.25,
+        fill: false
+      }]
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { color: '#bbb' } },
+        y: { beginAtZero: true, ticks: { color: '#bbb' } }
+      },
+      plugins: { legend: { labels: { color: '#ddd' } } }
+    }
+  });
 
-        ws.onopen = () => console.log("WebSocket connected.");
-        ws.onerror = (e) => console.error("WebSocket error:", e);
-        ws.onclose = () => console.warn("WebSocket closed.");
+  // Update chart with incoming history or single point
+  function updateChartFromHistory(history) {
+    labels.length = 0;
+    altData.length = 0;
+    history.forEach(h => {
+      labels.push(h.time);
+      altData.push(h.altitude);
+    });
+    altChart.update();
+  }
+  function pushAltitudePoint(alt) {
+    const t = new Date().toLocaleTimeString();
+    labels.push(t);
+    altData.push(alt);
+    if (labels.length > 200) { labels.shift(); altData.shift(); }
+    altChart.update();
+  }
 
-        ws.onmessage = (event) => {
-            console.log("Received:", event.data); // DEBUG LINE
+  // ---- Values update ----
+  function updateNumericDisplays(data) {
+    document.getElementById('val_alt').textContent = data.altitude.toFixed(2);
+    document.getElementById('val_lat').textContent = data.latitude.toFixed(6);
+    document.getElementById('val_lon').textContent = data.longitude.toFixed(6);
+    document.getElementById('val_spd').textContent = data.speed.toFixed(2);
+  }
 
-            const data = JSON.parse(event.data);
-            const altitude = data.z;
+  // ---- Socket events ----
+  socket.on('connect', () => console.log('Socket.IO connected'));
+  socket.on('telemetry', (msg) => {
+    // msg contains: x (lat), y (lon), z (alt), vx,vy,vz, history (optional)
+    try {
+      const data = {
+        altitude: Number(msg.z || 0),
+        speed: Number(msg.speed || 0),
+        latitude: Number(msg.x || 0),
+        longitude: Number(msg.y || 0)
+      };
+      updateNumericDisplays(data);
 
-            updateCharts(altitude);
-            updateDroneRotation(data.vx, data.vy, data.vz);
-        };
+      if (Array.isArray(msg.history)) {
+        updateChartFromHistory(msg.history);
+      } else {
+        pushAltitudePoint(data.altitude);
+      }
 
-        function sendManual() {
-            const val = parseFloat(document.getElementById("altitudeInput").value);
-            if (!isNaN(val)) updateCharts(val);
-        }
+      // update 3D drone (y axis)
+      update3DDrone(data.altitude);
+    } catch (e) {
+      console.warn('Telemetry parse error', e);
+    }
+  });
 
-        /* -------------------------
-           ALTITUDE CHART
-        -------------------------- */
+  // ---- Manual form submit ----
+  document.getElementById('sendBtn').addEventListener('click', async (ev) => {
+    ev.preventDefault();
+    const alt = parseFloat(document.getElementById('sim_alt').value || '0');
+    const lat = parseFloat(document.getElementById('sim_lat').value || '0');
+    const lon = parseFloat(document.getElementById('sim_lon').value || '0');
+    const spd = parseFloat(document.getElementById('sim_spd').value || '0');
 
-        const ctx = document.getElementById("altitudeChart");
+    // Basic validation
+    if (Number.isNaN(alt) || Number.isNaN(lat) || Number.isNaN(lon) || Number.isNaN(spd)) {
+      alert('Please enter valid numeric values for all fields.');
+      return;
+    }
 
-        const labels = [];
-        const altitudeData = [];
+    // Send to server - server will validate and broadcast
+    try {
+      await fetch('/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ altitude: alt, latitude: lat, longitude: lon, speed: spd })
+      });
+      // local immediate update (server will also broadcast)
+      updateNumericDisplays({ altitude: alt, latitude: lat, longitude: lon, speed: spd });
+      pushAltitudePoint(alt);
+      update3DDrone(alt);
+    } catch (err) {
+      console.error('Failed to send manual telemetry', err);
+    }
+  });
 
-        const altitudeChart = new Chart(ctx, {
-            type: "line",
-            data: {
-                labels,
-                datasets: [{
-                    label: "Altitude (m)",
-                    data: altitudeData,
-                    borderColor: "#0a84ff",
-                    backgroundColor: "#0a84ff",
-                    borderWidth: 3,
-                    pointRadius: 5,
-                    pointBackgroundColor: "#0a84ff",
-                    pointBorderColor: "#fff"
-                }]
-            },
-            options: {
-                responsive: true,
-                animation: false,
-                scales: {
-                    x: { ticks: { color: "#aaa" } },
-                    y: { ticks: { color: "#aaa" } }
-                }
-            }
-        });
+  // -----------------------
+  // Three.js 3D viewer
+  // -----------------------
+  let scene, camera, renderer, droneModel, clock;
+  function init3D() {
+    const container = document.getElementById('viewer');
+    scene = new THREE.Scene();
 
-        function updateCharts(alt) {
-            const time = new Date().toLocaleTimeString();
+    const w = container.clientWidth;
+    const h = container.clientHeight;
 
-            labels.push(time);
-            altitudeData.push(alt);
+    camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 1000);
+    camera.position.set(4, 3, 6);
+    camera.lookAt(0, 0, 0);
 
-            if (labels.length > 50) {
-                labels.shift();
-                altitudeData.shift();
-            }
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(w, h);
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    container.appendChild(renderer.domElement);
 
-            altitudeChart.update();
-        }
+    // lights
+    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.7);
+    dir.position.set(5, 10, 7);
+    scene.add(dir);
 
-        /* -------------------------
-           3D DRONE MODEL (Three.js)
-        -------------------------- */
+    // grid
+    const grid = new THREE.GridHelper(10, 20);
+    scene.add(grid);
 
-        const container = document.getElementById("droneContainer");
-        const scene = new THREE.Scene();
+    // try to load GLB model; fallback to a simple box if not found or on error
+    const loader = new THREE.GLTFLoader();
+    const modelPath = '/static/models/dji_mavic_air.glb';
+    loader.load(modelPath,
+      (gltf) => {
+        droneModel = gltf.scene;
+        droneModel.scale.set(0.8, 0.8, 0.8);
+        droneModel.position.set(0, 0.0, 0);
+        scene.add(droneModel);
+      },
+      undefined,
+      (err) => {
+        console.warn('GLB load failed, using fallback box model.', err);
+        const g = new THREE.BoxGeometry(2.4, 0.6, 1.6);
+        const m = new THREE.MeshStandardMaterial({ color: 0x00aaff });
+        droneModel = new THREE.Mesh(g, m);
+        scene.add(droneModel);
+      }
+    );
 
-        const camera = new THREE.PerspectiveCamera(
-            70,
-            container.clientWidth / container.clientHeight,
-            0.1,
-            1000
-        );
-        camera.position.set(4, 3, 6);
-        camera.lookAt(0, 0, 0);
+    clock = new THREE.Clock();
+    animate3D();
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(container.clientWidth, container.clientHeight);
-        renderer.setPixelRatio(window.devicePixelRatio);
-        container.appendChild(renderer.domElement);
+    // handle resize
+    window.addEventListener('resize', () => {
+      const W = container.clientWidth;
+      const H = container.clientHeight;
+      renderer.setSize(W, H);
+      camera.aspect = W / H;
+      camera.updateProjectionMatrix();
+    });
+  }
 
-        // Make drone bigger and easier to see
-        const bodyGeom = new THREE.BoxGeometry(3, 0.6, 2);
-        const bodyMat = new THREE.MeshStandardMaterial({ color: 0x00aaff });
-        const drone = new THREE.Mesh(bodyGeom, bodyMat);
-        scene.add(drone);
+  function animate3D() {
+    requestAnimationFrame(animate3D);
+    // slight bobbing so the model looks alive if no telemetry movement
+    if (droneModel) droneModel.rotation.y += 0.002;
+    renderer.render(scene, camera);
+  }
 
-        // Ambient + spotlight makes object visible
-        const ambient = new THREE.AmbientLight(0xffffff, 0.8);
-        scene.add(ambient);
+  function update3DDrone(altitude) {
+    if (!droneModel) return;
+    // scale altitude into visible height (tweak multiplier as needed)
+    const targetY = altitude * 0.3 + 0.05;
+    droneModel.position.y += (targetY - droneModel.position.y) * 0.12;
+  }
 
-        const spot = new THREE.SpotLight(0xffffff, 1.2);
-        spot.position.set(5, 10, 7);
-        scene.add(spot);
+  // Start 3D
+  init3D();
 
-        function animate() {
-            requestAnimationFrame(animate);
-            renderer.render(scene, camera);
-        }
-        animate();
+  // Request initial state when page loads
+  (async () => {
+    try {
+      const res = await fetch('/telemetry');
+      const json = await res.json();
+      updateNumericDisplays(json);
+      if (Array.isArray(json.history)) updateChartFromHistory(json.history);
+    } catch (e) {
+      console.warn('Failed initial telemetry fetch', e);
+    }
+  })();
 
-        function updateDroneRotation(vx, vy, vz) {
-            drone.rotation.x += vy * 0.05;
-            drone.rotation.y += vx * 0.05;
-            drone.rotation.z += vz * 0.05;
-        }
-
-        // Auto resize rendering
-        window.addEventListener("resize", () => {
-            renderer.setSize(container.clientWidth, container.clientHeight);
-            camera.aspect = container.clientWidth / container.clientHeight;
-            camera.updateProjectionMatrix();
-        });
-    </script>
-
+</script>
 </body>
 </html>
-
 """
 
 # -------------------------
-# Flask Routes
+# Flask routes
 # -------------------------
 @app.route("/")
 def index():
@@ -259,95 +389,127 @@ def index():
 @app.route("/telemetry")
 def telemetry():
     with telemetry_lock:
-        return jsonify({ **telemetry_data, "history": altitude_history })
+        # Provide history as a copy to avoid mutation races
+        return jsonify({ **telemetry_data, "history": list(altitude_history) })
 
 @app.route("/simulate", methods=["POST"])
 def simulate():
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "invalid json"}), 400
+
+    # Validate and coerce
+    try:
+        alt = float(data.get("altitude", telemetry_data["altitude"]))
+        spd = float(data.get("speed", telemetry_data["speed"]))
+        lat = float(data.get("latitude", telemetry_data["latitude"]))
+        lon = float(data.get("longitude", telemetry_data["longitude"]))
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid numeric values"}), 400
+
     with telemetry_lock:
         telemetry_data.update({
-            "altitude": float(data.get("altitude", telemetry_data["altitude"])),
-            "speed": float(data.get("speed", telemetry_data["speed"])),
-            "latitude": float(data.get("latitude", telemetry_data["latitude"])),
-            "longitude": float(data.get("longitude", telemetry_data["longitude"]))
+            "altitude": alt,
+            "speed": spd,
+            "latitude": lat,
+            "longitude": lon
         })
         altitude_history.append({
             "time": datetime.now().strftime("%H:%M:%S"),
             "altitude": telemetry_data["altitude"]
         })
-        if len(altitude_history) > 200:
+        if len(altitude_history) > MAX_HISTORY:
             altitude_history.pop(0)
 
-    socketio.emit("drone_state", {
-        "x": telemetry_data["latitude"],
-        "y": telemetry_data["longitude"],
-        "z": telemetry_data["altitude"],
-        "vx": 0.0, "vy": 0.0, "vz": 0.0
-    })
+        # Emit to connected websocket clients
+        try:
+            socketio.emit('telemetry', {
+                "x": telemetry_data["latitude"],
+                "y": telemetry_data["longitude"],
+                "z": telemetry_data["altitude"],
+                "vx": 0.0, "vy": 0.0, "vz": 0.0,
+                "speed": telemetry_data["speed"],
+                "history": list(altitude_history)
+            })
+        except Exception as e:
+            print("SocketIO emit error (simulate):", e)
 
-    return jsonify({"status": "Telemetry updated"})
+    return jsonify({"status": "ok"})
 
 # -------------------------
-# ZMQ Listener Thread
+# Background ZMQ listener (thread)
 # -------------------------
 def zmq_listener():
     ctx = zmq.Context()
     socket = ctx.socket(zmq.SUB)
-    socket.connect("tcp://127.0.0.1:5556")
-    socket.setsockopt_string(zmq.SUBSCRIBE, "")
+    try:
+        socket.connect("tcp://127.0.0.1:5556")
+        socket.setsockopt_string(zmq.SUBSCRIBE, "")
+        print("[ZMQ] Subscribed to tcp://127.0.0.1:5556")
+    except Exception as e:
+        print("[ZMQ] connect error:", e)
+        return
 
-    print("[ZMQ] Listening for drone telemetry on tcp://127.0.0.1:5556 ...")
     while True:
         try:
             message = socket.recv_json()
         except Exception as e:
-            print("ZMQ recv error:", e)
+            # keep alive on error
+            print("[ZMQ] recv error:", e)
             time.sleep(0.5)
             continue
 
-        with telemetry_lock:
-            telemetry_data["altitude"] = float(message.get("z", telemetry_data["altitude"]))
-            telemetry_data["speed"] = float(message.get("speed",
-                                    (message.get("vx",0)**2 + message.get("vy",0)**2 + message.get("vz",0)**2)**0.5))
-            telemetry_data["latitude"] = float(message.get("x", telemetry_data["latitude"]))
-            telemetry_data["longitude"] = float(message.get("y", telemetry_data["longitude"]))
+        # Expected message fields: id,x,y,z,vx,vy,vz (twin_agent format)
+        try:
+            alt = float(message.get("z", telemetry_data["altitude"]))
+            vx = float(message.get("vx", 0.0))
+            vy = float(message.get("vy", 0.0))
+            vz = float(message.get("vz", 0.0))
+            lat = float(message.get("x", telemetry_data["latitude"]))
+            lon = float(message.get("y", telemetry_data["longitude"]))
+            spd = (vx**2 + vy**2 + vz**2) ** 0.5
+        except Exception as e:
+            print("[ZMQ] message parse error:", e)
+            continue
 
+        with telemetry_lock:
+            telemetry_data.update({
+                "altitude": alt,
+                "speed": spd,
+                "latitude": lat,
+                "longitude": lon
+            })
             altitude_history.append({
                 "time": datetime.now().strftime("%H:%M:%S"),
                 "altitude": telemetry_data["altitude"]
             })
-            if len(altitude_history) > 200:
+            if len(altitude_history) > MAX_HISTORY:
                 altitude_history.pop(0)
 
-        try:
-            socketio.emit("drone_state", {
-                "x": telemetry_data["latitude"],
-                "y": telemetry_data["longitude"],
-                "z": telemetry_data["altitude"],
-                "vx": message.get("vx", 0.0),
-                "vy": message.get("vy", 0.0),
-                "vz": message.get("vz", 0.0)
-            })
-        except Exception as e:
-            print("SocketIO emit error:", e)
+            # emit to clients (push)
+            try:
+                socketio.emit('telemetry', {
+                    "x": telemetry_data["latitude"],
+                    "y": telemetry_data["longitude"],
+                    "z": telemetry_data["altitude"],
+                    "vx": vx, "vy": vy, "vz": vz,
+                    "speed": telemetry_data["speed"]
+                })
+            except Exception as e:
+                print("[SocketIO] emit error:", e)
 
+# Start background listener thread
 zmq_thread = threading.Thread(target=zmq_listener, daemon=True)
 zmq_thread.start()
 
 # -------------------------
-# Run Server
+# Run server
 # -------------------------
 if __name__ == "__main__":
-    expected = [
-        "static/js/three.module.js",
-        "static/js/GLTFLoader.js",
-        "static/js/OrbitControls.js",
-        "static/models/dji_mavic_air.glb"
-    ]
-    for path in expected:
-        if not os.path.exists(path):
-            print(f"[WARNING] Missing expected file: {path}")
-
-    ip_addr = os.popen("hostname -I | awk '{print $1}'").read().strip()
-    print(f"[SERVER] Running at http://{ip_addr}:5000 or http://127.0.0.1:5000")
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
+    # quick static-file note
+    expected = "static/models/dji_mavic_air.glb"
+    if not os.path.exists(expected):
+        print(f"[NOTICE] GLB model not found at {expected}. Dashboard will use fallback box model.")
+    print("[SERVER] Starting Flask + SocketIO server at http://127.0.0.1:5000")
+    # Disable debug in production; set debug=True only for local development
+    socketio.run(app, host="0.0.0.0", port=5000, debug=False)
