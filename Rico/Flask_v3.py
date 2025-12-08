@@ -34,7 +34,7 @@ dashboard_html = """
     }
 
     .container {
-      background: #ddd;        /* LIGHT GREY */
+      background: #D3D3D3;        /* LIGHT GREY */
       padding: 20px;
       border-radius: 10px;
       margin-bottom: 25px;
@@ -129,7 +129,7 @@ function init3D() {
     const ambient = new THREE.AmbientLight(0xffffff, 1.4);
     scene.add(ambient);
 
-    const loader = new THREE.GLTFLoader();
+    const loader = new three.GLTFLoader();
     loader.load("/static/models/dji_mavic_air.glb", function(gltf) {
         droneModel = gltf.scene;
 
