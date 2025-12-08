@@ -116,17 +116,17 @@ dashboard_html = """
 let scene, camera, renderer, droneModel;
 
 function init3D() {
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
+    scene = new three.Scene();
+    scene.background = new three.Color(0x000000);
 
-    camera = new THREE.PerspectiveCamera(60, 600/400, 0.1, 1000);
+    camera = new three.PerspectiveCamera(60, 600/400, 0.1, 1000);
     camera.position.set(0, 1.5, 4);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer = new three.WebGLRenderer({ antialias: true });
     renderer.setSize(600, 400);
     document.getElementById("sceneContainer").appendChild(renderer.domElement);
 
-    const ambient = new THREE.AmbientLight(0xffffff, 1.4);
+    const ambient = new three.AmbientLight(0xffffff, 1.4);
     scene.add(ambient);
 
     const loader = new three.GLTFLoader();
