@@ -48,6 +48,8 @@ dashboard_html = """
             background: #111;
             color: #fff;
             font-family: Arial;
+            margin: 0;
+            padding: 0;
         }
         .title {
             width: 90%;
@@ -120,9 +122,15 @@ dashboard_html = """
 
         const ws = new WebSocket("ws://localhost:8765");
 
+        ws.onopen = () => console.log("WebSocket connected.");
+        ws.onerror = (e) => console.error("WebSocket error:", e);
+        ws.onclose = () => console.warn("WebSocket closed.");
+
         ws.onmessage = (event) => {
+            console.log("Received:", event.data); // DEBUG LINE
+
             const data = JSON.parse(event.data);
-            const altitude = data.z; // using Z as altitude
+            const altitude = data.z;
 
             updateCharts(altitude);
             updateDroneRotation(data.vx, data.vy, data.vz);
@@ -159,6 +167,7 @@ dashboard_html = """
             },
             options: {
                 responsive: true,
+                animation: false,
                 scales: {
                     x: { ticks: { color: "#aaa" } },
                     y: { ticks: { color: "#aaa" } }
@@ -171,6 +180,12 @@ dashboard_html = """
 
             labels.push(time);
             altitudeData.push(alt);
+
+            if (labels.length > 50) {
+                labels.shift();
+                altitudeData.shift();
+            }
+
             altitudeChart.update();
         }
 
@@ -180,26 +195,34 @@ dashboard_html = """
 
         const container = document.getElementById("droneContainer");
         const scene = new THREE.Scene();
+
         const camera = new THREE.PerspectiveCamera(
             70,
             container.clientWidth / container.clientHeight,
             0.1,
             1000
         );
+        camera.position.set(4, 3, 6);
+        camera.lookAt(0, 0, 0);
+
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
         container.appendChild(renderer.domElement);
 
-        const geometry = new THREE.BoxGeometry(2, 0.5, 1.5);
-        const material = new THREE.MeshStandardMaterial({ color: 0x00aaff });
-        const drone = new THREE.Mesh(geometry, material);
+        // Make drone bigger and easier to see
+        const bodyGeom = new THREE.BoxGeometry(3, 0.6, 2);
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0x00aaff });
+        const drone = new THREE.Mesh(bodyGeom, bodyMat);
         scene.add(drone);
 
-        const light = new THREE.PointLight(0xffffff, 1);
-        light.position.set(5, 5, 5);
-        scene.add(light);
+        // Ambient + spotlight makes object visible
+        const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+        scene.add(ambient);
 
-        camera.position.z = 5;
+        const spot = new THREE.SpotLight(0xffffff, 1.2);
+        spot.position.set(5, 10, 7);
+        scene.add(spot);
 
         function animate() {
             requestAnimationFrame(animate);
@@ -212,10 +235,18 @@ dashboard_html = """
             drone.rotation.y += vx * 0.05;
             drone.rotation.z += vz * 0.05;
         }
+
+        // Auto resize rendering
+        window.addEventListener("resize", () => {
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+        });
     </script>
 
 </body>
 </html>
+
 """
 
 # -------------------------
