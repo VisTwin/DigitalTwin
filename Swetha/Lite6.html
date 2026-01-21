@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LITE6 CONTROL DASHBOARD</title>
+
+    <!-- SocketIO -->
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+
+    <!-- THREE.js -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
+
+    <style>
+        body {
+            background-color: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        h1 { text-align: center; font-size: 32px; }
+
+        .container {
+            width: 100%;
+            margin-top: 20px;
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .row { display: flex; width: 100%; margin-bottom: 10px; }
+        .item { flex: 1; margin: 5px; background: #222; padding: 10px; border-radius: 5px; }
+        .label { font-weight: bold; }
+
+        /* Bottom boxes */
+        #video_box, #sim_box {
+            flex: 1;
+            background: black;
+            height: 450px;
+            border-radius: 8px;
+            margin: 10px;
+            overflow: hidden;
+        }
+
+        #video_feed {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        #robot-3d-view {
+            width: 100%;
+            height: 100%;
+        }
+
+        button { margin: 8px 6px; padding: 6px 10px; }
+        input[type=range] { width: 100%; }
+    </style>
+</head>
+
+<body>
+
+<h1>LITE6 CONTROL DASHBOARD</h1>
+
+<div class="container">
+
+    <!-- JOINT ANGLES -->
+    <div class="label">Joint angles:</div>
+    <div class="row">
+        <div class="item" id="joint1">JOINT 1: -</div>
+        <div class="item" id="joint2">JOINT 2: -</div>
+        <div class="item" id="joint3">JOINT 3: -</div>
+    </div>
+    <div class="row">
+        <div class="item" id="joint4">JOINT 4: -</div>
+        <div class="item" id="joint5">JOINT 5: -</div>
+        <div class="item" id="joint6">JOINT 6: -</div>
+    </div>
+
+    <!-- SLIDERS -->
+    <div class="label">Move joints manually:</div>
+    <div class="row">
+        <div class="item"><input type="range" id="slider1" min="0" max="180"> JOINT 1</div>
+        <div class="item"><input type="range" id="slider2" min="0" max="180"> JOINT 2</div>
+        <div class="item"><input type="range" id="slider3" min="0" max="180"> JOINT 3</div>
+    </div>
+    <div class="row">
+        <div class="item"><input type="range" id="slider4" min="0" max="180"> JOINT 4</div>
+        <div class="item"><input type="range" id="slider5" min="0" max="180"> JOINT 5</div>
+        <div class="item"><input type="range" id="slider6" min="0" max="180"> JOINT 6</div>
+    </div>
+
+    <div class="row">
+        <div class="item" id="status">STATUS: Rest</div>
+        <div class="item" id="voice_log">Voice log:</div>
+    </div>
+
+    <button onclick="startVoice()">Start Voice</button>
+</div>
+
+<!-- BOTTOM BOXES -->
+<div style="display:flex; width:100%; margin-top:20px;">
+    <div id="video_box">
+        <img id="video_feed" src="/video_feed">
+    </div>
+
+    <!-- 🔁 THIS IS THE SIMULATION BOX -->
+    <div id="sim_box">
+        <div id="robot-3d-view"></div>
+    </div>
+</div>
+
+<script>
+/* ================= SOCKET ================= */
+const socket = io();
+
+/* ================= 3D SCENE ================= */
+let scene, camera, renderer, robot;
+
+init3D();
+animate();
+
+function init3D() {
+    const container = document.getElementById("robot-3d-view");
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
+
+    camera = new THREE.PerspectiveCamera(
+        45,
+        container.clientWidth / container.clientHeight,
+        0.1,
+        2000
+    );
+    camera.position.set(1, 1, 1.5);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const light = new THREE.DirectionalLight(0xffffff, 0.6);
+    light.position.set(2, 2, 2);
+    scene.add(light);
+
+    const loader = new THREE.GLTFLoader();
+    loader.load(
+        "/static/models/lite6.gltf",
+        (gltf) => {
+            robot = gltf.scene;
+            robot.scale.set(0.001, 0.001, 0.001);
+            scene.add(robot);
+            console.log("Lite6 3D model loaded");
+        },
+        undefined,
+        (err) => console.error("GLTF load error:", err)
+    );
+
+    window.addEventListener("resize", () => {
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+}
+
+/* ================= SOCKET DATA ================= */
+socket.on("robot_state", data => {
+    if (data.angles) {
+        for (let i = 0; i < 6; i++) {
+            document.getElementById("joint" + (i+1)).innerText =
+                "JOINT " + (i+1) + ": " + data.angles[i];
+            document.getElementById("slider" + (i+1)).value = data.angles[i];
+        }
+    }
+});
+
+/* ================= VOICE ================= */
+async function startVoice() {
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = 'en-US';
+    recognition.start();
+
+    recognition.onresult = async (event) => {
+        const text = event.results[0][0].transcript;
+        await fetch('/voice', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ text })
+        });
+    };
+}
+</script>
+
+</body>
+</html>
