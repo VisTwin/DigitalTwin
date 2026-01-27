@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LITE6 CONTROL DASHBOARD</title>
+
+    <!-- SocketIO -->
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+
+    <!-- THREE.js -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
+
+    <style>
+        body {
+            background-color: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 32px;
+        }
+
+        .container {
+            width: 100%;
+            margin-top: 20px;
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .row {
+            display: flex;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        .item {
+            flex: 1;
+            margin: 5px;
+            background: #222;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .label {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        button {
+            margin-right: 10px;
+            padding: 6px 14px;
+        }
+
+        #video_box, #sim_box {
+    flex: 1;
+            background: black; 
+            height: 450px;
+            border-radius: 8px;
+            margin: 10px;
+            overflow: hidden;
+        }
+            
+        #video_feed {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+            
+        #robot-3d-view {  
+            width: 100%;
+            height: 100%;
+            border: 3px solid red;   /* DEBUG */
+        }
+            
+        canvas {
+            border: 3px solid lime;  /* DEBUG */
+        }
+        
+        input[type=range] {
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+            
+<h1>LITE6 CONTROL DASHBOARD</h1>
+            
+<div class="container">
+         
+    <!-- JOINT ANGLES -->
+    <div class="label">Joint angles:</div>
+            
+    <div class="row">
+        <div class="item" id="joint1">JOINT 1: -</div>
+        <div class="item" id="joint2">JOINT 2: -</div>
+        <div class="item" id="joint3">JOINT 3: -</div>
+    </div>
+            
+    <div class="row">
+        <div class="item" id="joint4">JOINT 4: -</div>
+        <div class="item" id="joint5">JOINT 5: -</div>
+        <div class="item" id="joint6">JOINT 6: -</div>
+    </div>
+            
+    <!-- SLIDERS -->
+    <div class="label">Move joints manually:</div>
+        
+    <div class="row">   
+        <div class="item"><input type="range" min="0" max="180"> JOINT 1</div>
+        <div class="item"><input type="range" min="0" max="180"> JOINT 2</div>
+        <div class="item"><input type="range" min="0" max="180"> JOINT 3</div>
+  </div>  
+
+    <div class="row">
+        <div class="item"><input type="range" min="0" max="180"> JOINT 4</div>
+        <div class="item"><input type="range" min="0" max="180"> JOINT 5</div>
+        <div class="item"><input type="range" min="0" max="180"> JOINT 6</div>
+    </div>
+    
+    <!-- STATUS + VOICE LOG -->
+    <div class="row">
+        <div class="item" id="status">STATUS: Rest</div>
+        <div class="item" id="voice_log">Voice log:</div>
+    </div>
+        
+    <!-- VOICE BUTTONS -->
+    <button onclick="startVoice()">Start Voice</button>
+    <button onclick="resetVoice()">Start Over</button>
+        
+</div>
+        
+<!-- BOTTOM SECTION -->
+<div style="display:flex; width:100%; margin-top:20px;">
+    <div id="video_box">
+        <img id="video_feed" src="/video_feed">   
+    </div>
+    
+    <div id="sim_box">
+        <div id="robot-3d-view"></div>
+    </div>
+</div>
+
+<!-- ================= SCRIPT ================= -->
+<script>
+const socket = io();
+        
+/* ========== VOICE ========== */
+let recognition = null;
+    
+function startVoice() {
+    document.getElementById("status").innerText = "STATUS: Listening";
+        
+    recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = "en-US";
+    recognition.start();  
+    
+    recognition.onresult = (event) => {
+        const text = event.results[0][0].transcript;
+        document.getElementById("voice_log").innerText = "Voice log: " + text;
+        
+        fetch("/voice", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: text })  
+        });
+    };
+    
+    recognition.onerror = () => {
+        document.getElementById("status").innerText = "STATUS: Error";
+  };
+}
+
+function resetVoice() {
+    if (recognition) recognition.stop();
+    document.getElementById("voice_log").innerText = "Voice log:";
+    document.getElementById("status").innerText = "STATUS: Rest";
+}
+    
+
+<script>
+/* ================= 3D ================= */
+let scene, camera, renderer;
+    
+window.addEventListener("load", init3D);
+    
+function init3D() {
+    const container = document.getElementById("robot-3d-view");
+        
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x222222);
+            
+    camera = new THREE.PerspectiveCamera(45, 1, 0.01, 10000);
+    camera.position.set(0, 1, 3);
+           
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    container.appendChild(renderer.domElement);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    const light = new THREE.DirectionalLight(0xffffff, 1);
+    light.position.set(5, 5, 5);
+    scene.add(light);  
+    
+    /* DEBUG AXES */
+    scene.add(new THREE.AxesHelper(0.5));
+ 
+    const loader = new THREE.GLTFLoader();
+    loader.load("/static/models/lite6.gltf", (gltf) => {
+
+        const model = gltf.scene;
+        scene.add(model);   
+    
+        /* 🔑 AUTO CENTER + FIT CAMERA */
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3()).length();
+        const center = box.getCenter(new THREE.Vector3());
+        
+        model.position.sub(center);
+    
+        camera.near = size / 100;
+        camera.far = size * 100;
+        camera.updateProjectionMatrix();
+           
+        camera.position.set(size, size * 0.6, size);
+        camera.lookAt(0, 0, 0);
+    
+        console.log("Lite6 model loaded & centered");
+     resize();
+        animate();
+    });
+    
+    window.addEventListener("resize", resize);
+    resize();
+}
+ 
+function resize() {
+    const container = document.getElementById("robot-3d-view");
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    if (w && h) {
+        renderer.setSize(w, h);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+    }
+}
+        
+function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+}
+</script>
+           
+        
+        
+/* ========== lite6  ========== */
+        
+const loader = new THREE.GLTFLoader();
+        
+console.log("Trying to load GLTF...");
+    
+loader.load(
+    "/static/models/lite6.gltf",
+    (gltf) => {
+        console.log("✅ GLTF LOADED", gltf);
+
+        const robot = gltf.scene;
+    
+        // FORCE VISIBILITY
+        robot.scale.set(1, 1, 1);
+        robot.position.set(0, 0, 0);
+        robot.rotation.set(0, 0, 0);
+        
+        scene.add(robot);
+ 
+robot.traverse((child) => {
+    if (child.isMesh) {
+        child.material = new THREE.MeshStandardMaterial({
+            color: 0xaaaaaa,
+            metalness: 0.3,
+            roughness: 0.6
+        });
+    }   
+});     
+
+    
+    window.addEventListener("resize", onResize);
+    onResize();
+    animate(); 
+}
+
+function onResize() {
+    const container = document.getElementById("robot-3d-view");
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+        
+    if (w && h) {
+        renderer.setSize(w, h);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+    }
+}
+        
+function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+}
+</script>
+        
+</body>
+</html> 
