@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Three.js Test</title>
+
+    <!-- STABLE Three.js (NO MODULES) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            background: #ddd;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #viewer-box {
+            width: 600px;
+            height: 400px;
+            background: white;
+            border: 2px solid black;
+        }
+    </style>
+</head>
+<body>
+
+<div id="viewer-box"></div>
+
+<script src="{{ url_for('static', filename='js/viewer.js') }}"></script>
+
+</body>
+</html>
