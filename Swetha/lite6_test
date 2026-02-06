@@ -1,0 +1,93 @@
+#index.html
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Three.js Test</title>
+
+    <!-- STABLE Three.js (NO MODULES) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            background: #ddd;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #viewer-box {
+            width: 600px;
+            height: 400px;
+            background: white;
+            border: 2px solid black;
+        }
+    </style>
+</head>
+<body>
+
+<div id="viewer-box"></div>
+
+<script src="{{ url_for('static', filename='js/viewer.js') }}"></script>
+
+</body>
+</html>
+
+
+
+
+
+
+
+
+#js(sttsic code)
+
+
+const container = document.getElementById("viewer-box");
+
+// Scene
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xeeeeee);
+
+// Camera
+const camera = new THREE.PerspectiveCamera(
+    60,
+    container.clientWidth / container.clientHeight,
+    0.1,
+    100
+);
+camera.position.set(0, 0, 3);
+
+// Renderer
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(container.clientWidth, container.clientHeight);
+container.appendChild(renderer.domElement);
+
+// Light
+const light = new THREE.DirectionalLight(0xffffff, 1);
+light.position.set(1, 1, 1);
+scene.add(light);
+
+// TEST CUBE (NO LOADERS, NO CONTROLS)
+const geometry = new THREE.BoxGeometry(1, 1, 1);
+const material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+const cube = new THREE.Mesh(geometry, material);
+scene.add(cube);
+
+// Render loop
+function animate() {
+    requestAnimationFrame(animate);
+    cube.rotation.y += 0.01;
+    renderer.render(scene, camera);
+}
+animate();
+
+
+
+
+
+
