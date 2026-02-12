@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LITE6 CONTROL DASHBOARD</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.3.0/socket.io.js"></script>
+
+    <style>
+        body {
+            background-color: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        h1 { text-align: center; font-size: 32px; }
+
+        .container { width: 100%; margin-top: 20px; background: #1a1a1a; padding: 15px; border-radius: 8px; }
+
+        .row { display: flex; width: 100%; margin-bottom: 10px; }
+        .item { flex: 1; margin: 5px; background: #222; padding: 10px; border-radius: 5px; }
+        .label { font-weight: bold; }
+
+        /* Bottom boxes */
+        #video_box, #sim_box {
+            flex: 1;
+            background: black;
+            height: 450px;
+            border-radius: 8px;
+            margin: 10px;
+            overflow: hidden;
+        }
+        #video_feed { width: 100%; height: 100%; object-fit: cover; display:block; }
+        #simCanvas { width: 100%; height: 100%; background:black; display:block; }
+
+        button { margin: 8px 6px; padding:6px 10px; }
+        input[type=range] { width: 100%; }
+    </style>
+</head>
+<body>
+<h1>LITE6 CONTROL DASHBOARD</h1>
+        
+<div class="container">
+    
+    <!-- JOINT ANGLES -->
+    <div class="label">Joint angles:</div>
+    <div class="row">
+        <div class="item" id="joint1">JOINT 1: -</div>
+        <div class="item" id="joint2">JOINT 2: -</div>
+        <div class="item" id="joint3">JOINT 3: -</div>  
+    </div>
+    <div class="row">
+        <div class="item" id="joint4">JOINT 4: -</div>
+        <div class="item" id="joint5">JOINT 5: -</div>
+        <div class="item" id="joint6">JOINT 6: -</div>
+    </div>
+
+    <!-- JOINT SLIDERS -->
+    <div class="label">Move joints manually:</div>
+    <div class="row">
+        <div class="item"><input type="range" id="slider1" min="0" max="180"> JOINT 1</div>
+        <div class="item"><input type="range" id="slider2" min="0" max="180"> JOINT 2</div>
+        <div class="item"><input type="range" id="slider3" min="0" max="180"> JOINT 3</div>
+    </div>
+    <div class="row">
+        <div class="item"><input type="range" id="slider4" min="0" max="180"> JOINT 4</div>
+        <div class="item"><input type="range" id="slider5" min="0" max="180"> JOINT 5</div>
+        <div class="item"><input type="range" id="slider6" min="0" max="180"> JOINT 6</div>
+    </div>
+    
+    <div class="row">
+        <div class="item" id="status">STATUS: Rest</div>
+        <div class="item" id="voice_log">Voice log:</div>
+    </div>
+
+    <button onclick="startVoice()">Start Voice</button>
+</div>
+
+<!-- bottom boxes -->
+<div style="display:flex; width:100%; margin-top:20px;">
+    <div id="video_box">
+        <img id="video_feed" src="/video_feed">
+    </div> 
+    <div id="sim_box">
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+    
+<script>
+const simBox = document.getElementById("sim_box");
+        
+/* Scene */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x222222);
+        
+/* Camera */
+const camera = new THREE.PerspectiveCamera(
+    75,
+    simBox.clientWidth / simBox.clientHeight,
+    0.1,
+    1000
+);
+camera.position.set(5,5,5);
+camera.lookAt(0,0,0);
+
+/* Renderer */
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(simBox.clientWidth, simBox.clientHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+simBox.appendChild(renderer.domElement);
+    
+/* Light */
+scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+const light = new THREE.DirectionalLight(0xffffff, 1);
+light.position.set(5,10,5);
+scene.add(light);
+    
+/* BIG TEST CUBE */
+const geometry = new THREE.BoxGeometry(2,2,2);
+const material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+const cube = new THREE.Mesh(geometry, material);
+scene.add(cube);
+
+/* Grid */
+const grid = new THREE.GridHelper(20, 20);
+scene.add(grid);
+       
+/* Animation */
+function animate() {
+    requestAnimationFrame(animate);
+    cube.rotation.y += 0.01;
+    renderer.render(scene, camera);
+}
+animate();
+
+/* Resize */
+window.addEventListener("resize", () => {
+    camera.aspect = simBox.clientWidth / simBox.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(simBox.clientWidth, simBox.clientHeight);
+});
+</script>
+
+</body>
+</html>
+
+
+
