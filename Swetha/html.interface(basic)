@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LITE6 CONTROL DASHBOARD</title>
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <style>
+        body {
+            background-color: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        h1 { text-align: center; font-size: 32px; }
+
+        .container { width: 100%; margin-top: 20px; background: #1a1a1a; padding: 15px; border-radius: 8px; }
+
+        .row { display: flex; width: 100%; margin-bottom: 10px; }
+        .item { flex: 1; margin: 5px; background: #222; padding: 10px; border-radius: 5px; }
+        .label { font-weight: bold; }
+
+        /* Bottom boxes */
+        #video_box, #sim_box {
+            flex: 1;
+            background: black;
+            height: 450px;
+            border-radius: 8px;
+            margin: 10px;
+            overflow: hidden;
+        }
+        #video_feed { width: 100%; height: 100%; object-fit: cover; display:block; }
+        #simCanvas { width: 100%; height: 100%; background:black; display:block; }
+
+        button { margin: 8px 6px; padding:6px 10px; }
+        input[type=range] { width: 100%; }
+    </style>
+</head>
+<body>
+
+<h1>LITE6 CONTROL DASHBOARD</h1>
+
+<div class="container">
+
+    <!-- JOINT ANGLES -->
+    <div class="label">Joint angles:</div>
+    <div class="row">
+        <div class="item" id="joint1">JOINT 1: -</div>
+        <div class="item" id="joint2">JOINT 2: -</div>
+        <div class="item" id="joint3">JOINT 3: -</div>
+    </div>
+    <div class="row">
+        <div class="item" id="joint4">JOINT 4: -</div>
+        <div class="item" id="joint5">JOINT 5: -</div>
+        <div class="item" id="joint6">JOINT 6: -</div>
+    </div>
+
+    <!-- JOINT SLIDERS -->
+    <div class="label">Move joints manually:</div>
+    <div class="row">
+      <div class="item"><input type="range" id="slider1" min="0" max="180"> JOINT 1</div>
+        <div class="item"><input type="range" id="slider2" min="0" max="180"> JOINT 2</div>
+        <div class="item"><input type="range" id="slider3" min="0" max="180"> JOINT 3</div>
+    </div>
+    <div class="row">
+        <div class="item"><input type="range" id="slider4" min="0" max="180"> JOINT 4</div>
+        <div class="item"><input type="range" id="slider5" min="0" max="180"> JOINT 5</div>
+        <div class="item"><input type="range" id="slider6" min="0" max="180"> JOINT 6</div>
+    </div>
+
+    <div class="row">
+        <div class="item" id="status">STATUS: Rest</div>
+        <div class="item" id="voice_log">Voice log:</div>
+    </div>
+    
+    <button onclick="startVoice()">Start Voice</button>
+</div>
+        
+<!-- bottom boxes -->
+<div style="display:flex; width:100%; margin-top:20px;">
+    <div id="video_box">
+        <img id="video_feed" src="/video_feed">
+    </div>
+    <div id="sim_box">
+        <canvas id="simCanvas"></canvas>
+    </div>
+</div>
+    
+<script>
+/* ======== Canvas setup ======== */
+const simCanvas = document.getElementById("simCanvas");
+const ctx = simCanvas.getContext("2d");
+    
+function resizeSim() {
+    simCanvas.width = simCanvas.clientWidth;
+    simCanvas.height = simCanvas.clientHeight;
+}
+resizeSim();
+window.addEventListener("resize", resizeSim);
+    
+/* ======== SocketIO ======== */
+const socket = io();
+    
+/* ======== State ======== */
+let simAngles = [0,0,0,0,0,0];
+
+/* ======== Update dashboard when robot state arrives ======== */
+socket.on("robot_state", data => {
+    if(data.angles){
+        simAngles = data.angles.map(x => x===null?0:x);
+        for(let i=0;i<6;i++){
+            document.getElementById("joint"+(i+1)).innerText = "JOINT "+(i+1)+": "+simAngles[i];
+            document.getElementById("slider"+(i+1)).value = simAngles[i];
+        }
+        drawSim();
+    } 
+}); 
+
+/* ======== 2D Simulation Drawing ======== */
+function drawSim(){
+    const w = simCanvas.width;
+    const h = simCanvas.height;
+    ctx.clearRect(0,0,w,h);
+    ctx.save();
+    ctx.translate(w/2, h*0.9);
+    ctx.lineWidth = 8;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#fff";
+    ctx.fillStyle = "red";
+
+    const lengths = [70,70,60,50,40,30];
+    let x=0,y=0,angle=-Math.PI/2;
+
+    for(let i=0;i<6;i++){
+        angle += simAngles[i]*Math.PI/180;
+        let nx = x + lengths[i]*Math.cos(angle);
+        let ny = y + lengths[i]*Math.sin(angle);
+    
+        ctx.beginPath();
+        ctx.moveTo(x,y);
+        ctx.lineTo(nx,ny);
+        ctx.stroke();
+         
+        ctx.beginPath();
+        ctx.arc(nx,ny,8,0,Math.PI*2);
+        ctx.fill();
+        x=nx; y=ny;
+    }
+    
+    ctx.fillStyle="#ffffff";   
+    ctx.fillRect(-20,6,40,6);
+    
+    ctx.restore();
+}
+drawSim();
+    
+/* ======== Slider control ======== */
+for(let i=1;i<=6;i++){
+    const slider = document.getElementById("slider"+i);
+    slider.addEventListener("input", async ()=>{
+        let angles = simAngles.slice();
+        angles[i-1] = parseInt(slider.value);
+        simAngles = angles;
+        drawSim();
+        
+        // send command to server
+        await fetch("/joints",{
+            method:"POST",
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({angles: angles})
+        });
+    });
+}
+        
+/* ======== Voice control ======== */
+async function startVoice(){
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    
+    recognition.start();
+    
+    recognition.onresult = async (event)=>{
+        const text = event.results[0][0].transcript;
+        console.log("Heard:", text);
+        
+        await fetch('/voice',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({text: text})
+        });
+    };  
+    
+    recognition.onerror = (event)=>{
+        console.error("Speech recognition error:", event.error);
+    };      
+    
+    recognition.onend = ()=>{
+        console.log("Speech recognition ended.");
+    };
+}
+</script>
+
+</body>
+</html>
+    
+   
